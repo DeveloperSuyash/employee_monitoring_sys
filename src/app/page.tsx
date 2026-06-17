@@ -1,65 +1,220 @@
-import Image from "next/image";
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { supabase } from '@/lib/supabase';
+import { Loader2 } from 'lucide-react';
+
+const ADMIN_EMAIL = 'bhuisompa001@gmail.com';
+const ADMIN_NAME = 'Sompa Bhui';
+const AUTH_TIMEOUT_MS = 10000;
+
+function withTimeout<T>(promise: PromiseLike<T>, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timeoutId = window.setTimeout(() => {
+      reject(new Error(`${label} timed out after ${AUTH_TIMEOUT_MS / 1000}s`));
+    }, AUTH_TIMEOUT_MS);
+
+    Promise.resolve(promise)
+      .then(resolve)
+      .catch(reject)
+      .finally(() => window.clearTimeout(timeoutId));
+  });
+}
 
 export default function Home() {
+  const router = useRouter();
+  const [status, setStatus] = useState<'loading' | 'unauthenticated' | 'error'>('loading');
+  const [error, setError] = useState<string | null>(null);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  useEffect(() => {
+    console.log('[home-page] page initialization');
+    async function checkUser() {
+      console.log('[home-page] auth check start');
+      try {
+        const { data: { session } } = await withTimeout(
+          supabase.auth.getSession(),
+          'Supabase session check'
+        );
+
+        if (!session || !session.user) {
+          console.log('[home-page] auth check complete: unauthenticated');
+          setStatus('unauthenticated');
+          return;
+        }
+
+        const sessionEmail = session.user.email?.toLowerCase() || '';
+        if (sessionEmail === ADMIN_EMAIL) {
+          await ensureAdminRecord(session.user.id, sessionEmail);
+        }
+
+        const { data: profile, error } = await withTimeout(
+          Promise.resolve(
+            supabase
+              .from('users')
+              .select('role')
+              .or(`id.eq.${session.user.id},email.eq.${sessionEmail}`)
+              .single()
+          ),
+          'Profile role lookup'
+        );
+
+        if (error || !profile?.role) {
+          setError('Could not resolve your profile role. Please sign in again or contact your administrator.');
+          setStatus('error');
+          return;
+        }
+
+        const role = profile.role;
+        console.log('[home-page] auth check role:', role);
+        if (role === 'admin') {
+          router.replace('/admin');
+        } else if (role === 'employee') {
+          router.replace('/employee');
+        } else {
+          setError('Access denied: your account role is not permitted.');
+          setStatus('error');
+        }
+      } catch (err: any) {
+        console.error('[home-page] auth check failed:', err);
+        setError(err?.message || 'Failed to verify session.');
+        setStatus('error');
+      }
+    }
+
+    void checkUser();
+  }, [router]);
+
+  async function ensureAdminRecord(userId: string, emailValue: string) {
+    if (emailValue.toLowerCase() !== ADMIN_EMAIL) {
+      return;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
+
+    try {
+      const response = await fetch('/api/ensure-admin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailValue, userId, name: ADMIN_NAME }),
+        signal: controller.signal
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload?.error || `Ensure admin failed with ${response.status}`);
+      }
+    } finally {
+      window.clearTimeout(timeoutId);
+    }
+  }
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setError(null);
+    setIsSubmitting(true);
+
+    try {
+      const { data, error: signInError } = await withTimeout(
+        supabase.auth.signInWithPassword({
+          email: email.trim().toLowerCase(),
+          password
+        }),
+        'Admin sign in'
+      );
+
+      if (signInError || !data.session) {
+        throw new Error(signInError?.message || 'Invalid login credentials');
+      }
+
+      const session = data.session;
+      await ensureAdminRecord(session.user.id, session.user.email || '');
+
+      const { data: profileData, error: profileError } = await withTimeout(
+        Promise.resolve(
+          supabase
+            .from('users')
+            .select('role')
+            .eq('id', session.user.id)
+            .single()
+        ),
+        'Signed-in profile lookup'
+      );
+
+      const role = profileData?.role;
+      if (role === 'admin') {
+        router.replace('/admin');
+      } else if (role === 'employee') {
+        router.replace('/employee');
+      } else {
+        throw new Error('Access denied: your account role is not permitted.');
+      }
+    } catch (err: any) {
+      console.error('Admin login failed:', err);
+      setError(err?.message || 'Failed to sign in.');
+      setStatus('error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  if (status === 'loading') {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 gap-4 p-6">
+        <Loader2 className="animate-spin text-indigo-600" size={40} />
+        <p className="text-slate-500 font-medium font-sans">Verifying session...</p>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+    <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 p-6 font-sans text-center">
+      <div className="max-w-xl rounded-3xl border border-slate-200 bg-white p-10 shadow-xl">
+        <h1 className="text-4xl font-black text-slate-900 mb-4">Admin Login</h1>
+        {status === 'unauthenticated' ? (
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div>
+              <label className="block text-left text-sm font-semibold text-slate-700 mb-2">Email</label>
+              <input
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-slate-900 focus:border-indigo-500 focus:outline-none"
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="sompa bhui"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-left text-sm font-semibold text-slate-700 mb-2">Password</label>
+              <input
+                className="w-full rounded-2xl border border-slate-200 px-4 py-3 text-slate-900 focus:border-indigo-500 focus:outline-none"
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="Enter password"
+                required
+              />
+            </div>
+            {error && <p className="text-left text-sm text-rose-600">{error}</p>}
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full rounded-2xl bg-indigo-600 px-4 py-3 text-white transition hover:bg-indigo-700 disabled:opacity-50"
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+              {isSubmitting ? 'Signing in…' : 'Sign in as admin'}
+            </button>
+            <p className="text-sm text-slate-500">
+              Only administrators may access this dashboard. Use the Chrome extension login for employee access.
+            </p>
+          </form>
+        ) : (
+          <p className="text-rose-500 text-base">{error || 'An unexpected error occurred while resolving your user role.'}</p>
+        )}
+      </div>
     </div>
   );
 }
