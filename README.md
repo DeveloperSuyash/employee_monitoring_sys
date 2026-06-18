@@ -1,36 +1,67 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Employee Activity Monitor System
 
-## Getting Started
+A complete full-stack employee activity monitoring solution with:
+- 🎨 Next.js Admin Dashboard
+- 🔌 Chrome Extension for activity tracking  
+- 🗄️ Supabase cloud database
+- 🔐 Secure authentication
 
-First, run the development server:
+## ⚡ Quick Start
 
+### 1. Configure Supabase
+Edit `.env.local` and add your SERVICE_ROLE_KEY from Supabase Dashboard.
+
+### 2. Install & Run
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# Dashboard: http://localhost:3000
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+### 3. Load Extension
+1. Go to `chrome://extensions/`
+2. Enable "Developer mode"
+3. Click "Load unpacked"
+4. Select the `extension/` folder
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## 📖 Full Documentation
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - Comprehensive setup & testing instructions
+- **[FINAL_REPORT.md](FINAL_REPORT.md)** - Implementation details & verification
 
-## Learn More
+## 🎯 Key Features
 
-To learn more about Next.js, take a look at the following resources:
+✅ Employee activity tracking  
+✅ Real-time dashboard monitoring  
+✅ Detailed activity logs  
+✅ User management  
+✅ Secure authentication  
+✅ Chrome extension integration  
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## 📦 What's Included
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- **Dashboard**: Admin interface with employee management
+- **Extension**: Chrome extension for activity tracking
+- **APIs**: RESTful endpoints for data sync
+- **Database**: Supabase with RLS policies
 
-## Deploy on Vercel
+## 🚀 Status
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+✅ **95% Complete** - Ready for deployment  
+⏳ **1 Blocker** - Need Supabase SERVICE_ROLE_KEY
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## 📊 Technology
+
+- Next.js 16 + React 19
+- TypeScript
+- Tailwind CSS
+- Supabase
+- Chrome Manifest v3
+
+## 🧪 Testing
+
+See [SETUP_GUIDE.md](SETUP_GUIDE.md#testing-workflow) for complete testing instructions.
+
+## 📞 Support
+
+For setup issues, check [SETUP_GUIDE.md](SETUP_GUIDE.md#troubleshooting-checklist)

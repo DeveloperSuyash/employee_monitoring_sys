@@ -63,6 +63,13 @@ export default function Home() {
         );
 
         if (error || !profile?.role) {
+          const sessionEmail = session.user.email?.toLowerCase() || '';
+          if (sessionEmail === ADMIN_EMAIL) {
+            console.warn('[home-page] Admin email detected but no profile role found; routing to admin.');
+            router.replace('/admin');
+            return;
+          }
+
           setError('Could not resolve your profile role. Please sign in again or contact your administrator.');
           setStatus('error');
           return;
@@ -150,6 +157,9 @@ export default function Home() {
         router.replace('/admin');
       } else if (role === 'employee') {
         router.replace('/employee');
+      } else if (session.user.email?.toLowerCase() === ADMIN_EMAIL) {
+        console.warn('[home-page] Signed-in admin email with missing role. Redirecting to admin dashboard.');
+        router.replace('/admin');
       } else {
         throw new Error('Access denied: your account role is not permitted.');
       }

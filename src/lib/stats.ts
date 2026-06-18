@@ -1,12 +1,15 @@
 import { supabase } from '@/lib/supabase';
 
 /**
- * DETECTED SCHEMA SYNC:
+ * DATABASE SCHEMA:
  * users: id, email, name, role, status, created_at
  * activity_logs: id, user_id, domain, url, time_spent, visit_count, created_at
+ * 
+ * ✓ Uses user_id (not employee_id) for activity logs
+ * ✓ RLS policies should allow reads/writes with proper authentication
  */
 
-const REQUEST_TIMEOUT_MS = 10000;
+const REQUEST_TIMEOUT_MS = 15000;
 
 async function fetchAdminDashboardPayload(label: string) {
   console.log(`[${label}] start`);

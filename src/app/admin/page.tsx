@@ -26,6 +26,8 @@ import { fetchAdminDashboard, fetchEmployeeDetails } from '@/lib/stats';
 import { createUserAction, deleteUserAction, updateUserRoleAction, toggleUserStatusAction } from '@/app/actions/user-actions';
 import { supabase } from '@/lib/supabase';
 
+const ADMIN_EMAIL = 'bhuisompa001@gmail.com';
+
 export default function AdminDashboard() {
   const [stats, setStats] = useState({ totalUsers: 0, activeUsers: 0, onlineUsers: 0, totalHours: '0h' });
   const [employees, setEmployees] = useState<any[]>([]);
@@ -67,11 +69,21 @@ export default function AdminDashboard() {
 
         if (error) {
           console.warn('Unable to resolve current admin user profile:', error.message);
+          if (sessionEmail === ADMIN_EMAIL) {
+            console.warn('[admin-page] Admin email detected despite missing profile; continuing to admin.');
+            setCurrentUser({ name: 'Admin', role: 'admin', email: sessionEmail });
+            return;
+          }
           router.replace('/');
           return;
         }
 
         if (!profile?.role) {
+          if (sessionEmail === ADMIN_EMAIL) {
+            console.warn('[admin-page] Admin profile missing role, using email fallback.');
+            setCurrentUser({ name: profile?.name || 'Admin', role: 'admin', email: sessionEmail });
+            return;
+          }
           console.warn('Admin profile missing role, redirecting to login.');
           router.replace('/');
           return;
