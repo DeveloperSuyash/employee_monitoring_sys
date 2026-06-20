@@ -9,7 +9,7 @@
     "scripting",
     "storage",
     "webRequest",
-    "alarms"
+    "history"
   ],
   "host_permissions": [
     "<all_urls>"

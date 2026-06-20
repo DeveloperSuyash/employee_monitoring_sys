@@ -24,7 +24,10 @@ export async function GET(req: Request) {
 
     const users = usersResult.data || [];
     const logs = logsResult.data || [];
-    console.log('[admin-dashboard] Activity logs fetched:', logs);
+    console.log('[admin-dashboard] Records fetched:', {
+      employeeId,
+      count: logs.length
+    });
     console.log('[admin-dashboard] Selected employee id:', employeeId);
 
     const totalUsers = users.length;
@@ -88,17 +91,22 @@ export async function GET(req: Request) {
 
     if (employeeId) {
       const employee = users.find((user: any) => user.id === employeeId);
-      const employeeLogs = logs
+      const allEmployeeLogs = logs
         .filter((log: any) => log.user_id === employeeId)
         .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
-      const employeeTime = employeeLogs.reduce((sum: number, log: any) => sum + (Number(log.time_spent) || 0), 0);
+      const employeeLogs = allEmployeeLogs.slice(0, 50);
+      const employeeTime = allEmployeeLogs.reduce((sum: number, log: any) => sum + (Number(log.time_spent) || 0), 0);
+      console.log('[admin-dashboard] Employee details logs prepared:', {
+        employeeId,
+        count: employeeLogs.length
+      });
 
       response.employeeDetails = {
         employee,
         logs: employeeLogs,
         totalTime: employeeTime,
-        websiteCount: new Set(employeeLogs.map((log: any) => log.domain).filter(Boolean)).size,
-        visitCount: employeeLogs.reduce((sum: number, log: any) => sum + (Number(log.visit_count) || 0), 0),
+        websiteCount: new Set(allEmployeeLogs.map((log: any) => log.domain).filter(Boolean)).size,
+        visitCount: allEmployeeLogs.reduce((sum: number, log: any) => sum + (Number(log.visit_count) || 0), 0),
         productivity: 0
       };
     }

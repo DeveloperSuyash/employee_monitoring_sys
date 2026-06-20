@@ -5,346 +5,657 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Employee Activity Monitor</title>
     <style>
+        :root {
+            --bg: #edf2f9;
+            --surface: #ffffff;
+            --surface-soft: #f7f9fc;
+            --border: #d9e2f2;
+            --text: #16304f;
+            --muted: #7b8ca6;
+            --heading: #647c9c;
+            --primary: #6466f1;
+            --primary-soft: #eef0ff;
+            --success: #1fbf8f;
+            --danger: #ff5f6d;
+            --shadow: 0 8px 18px rgba(31, 60, 107, 0.12);
+        }
+
         * {
+            box-sizing: border-box;
             margin: 0;
             padding: 0;
-            box-sizing: border-box;
         }
 
         body {
-            width: 350px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-            background: #f9fafb;
-            color: #1f2937;
+            width: 520px;
+            min-height: 720px;
+            font-family: "Segoe UI", Arial, sans-serif;
+            background: var(--bg);
+            color: var(--text);
         }
 
-        .container {
-            padding: 16px;
-        }
-
-        .header {
+        .app-shell {
+            min-height: 100vh;
             display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 20px;
-            padding-bottom: 16px;
-            border-bottom: 1px solid #e5e7eb;
+            flex-direction: column;
         }
 
-        .header h1 {
-            font-size: 16px;
-            font-weight: 600;
-        }
-
-        .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 4px 8px;
-            border-radius: 12px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-
-        .status-badge.online {
-            background: #d1fae5;
-            color: #065f46;
-        }
-
-        .status-badge.offline {
-            background: #fee2e2;
-            color: #991b1b;
-        }
-
-        .status-badge.tracking {
-            background: #dbeafe;
-            color: #0c4a6e;
-        }
-
-        .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            display: inline-block;
-        }
-
-        .dot.online {
-            background: #10b981;
-        }
-
-        .dot.offline {
-            background: #ef4444;
-        }
-
-        .dot.tracking {
-            background: #3b82f6;
-            animation: pulse 1s infinite;
-        }
-
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
-        }
-
-        /* Auth Section */
-        .auth-section {
+        .auth-section,
+        .dashboard-section {
             display: none;
         }
 
-        .auth-section.show {
+        .auth-section.show,
+        .dashboard-section.show {
             display: block;
         }
 
+        .auth-wrap {
+            padding: 28px;
+        }
+
+        .auth-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            box-shadow: var(--shadow);
+            padding: 28px;
+        }
+
+        .auth-card h1 {
+            font-size: 30px;
+            line-height: 1.1;
+            margin-bottom: 10px;
+        }
+
+        .auth-card p {
+            color: var(--muted);
+            margin-bottom: 24px;
+            font-size: 14px;
+        }
+
         .form-group {
-            margin-bottom: 12px;
+            margin-bottom: 14px;
         }
 
         label {
             display: block;
-            font-size: 12px;
-            font-weight: 500;
-            margin-bottom: 4px;
-            color: #6b7280;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--heading);
+            margin-bottom: 8px;
         }
 
         input {
             width: 100%;
-            padding: 8px 12px;
-            border: 1px solid #d1d5db;
-            border-radius: 6px;
-            font-size: 13px;
-            font-family: inherit;
+            border: 1px solid var(--border);
+            border-radius: 14px;
+            padding: 14px 16px;
+            font-size: 15px;
+            color: var(--text);
+            background: #fff;
+            outline: none;
         }
 
         input:focus {
-            outline: none;
-            border-color: #3b82f6;
-            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+            border-color: #a2b2ff;
+            box-shadow: 0 0 0 4px rgba(100, 102, 241, 0.12);
         }
 
-        /* User Section */
-        .user-section {
-            display: none;
-        }
-
-        .user-section.show {
-            display: block;
-        }
-
-        .user-info {
-            background: #f3f4f6;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 16px;
-            font-size: 13px;
-        }
-
-        .user-info p {
-            margin: 6px 0;
-        }
-
-        .user-info strong {
-            display: inline-block;
-            width: 60px;
-            color: #6b7280;
-        }
-
-        .activity-section {
-            background: #f3f4f6;
-            padding: 12px;
-            border-radius: 8px;
-            margin-bottom: 16px;
-            font-size: 13px;
-        }
-
-        .activity-item {
-            margin: 8px 0;
-            padding: 8px;
-            background: white;
-            border-radius: 6px;
-            border-left: 3px solid #3b82f6;
-        }
-
-        .activity-label {
-            color: #6b7280;
-            font-size: 12px;
-        }
-
-        .activity-value {
-            font-weight: 600;
-            color: #1f2937;
-        }
-
-        .activity-value.time {
-            font-size: 18px;
-        }
-
-        /* Button Styles */
         button {
-            width: 100%;
-            padding: 10px;
             border: none;
-            border-radius: 6px;
-            font-size: 13px;
-            font-weight: 500;
+            border-radius: 14px;
             cursor: pointer;
-            transition: all 0.2s;
-            font-family: inherit;
+            font-size: 15px;
+            font-weight: 700;
+            transition: 0.2s ease;
         }
 
-        .btn-primary {
-            background: #3b82f6;
-            color: white;
-            margin-bottom: 8px;
-        }
-
-        .btn-primary:hover {
-            background: #2563eb;
-        }
-
-        .btn-secondary {
-            background: #e5e7eb;
-            color: #1f2937;
-        }
-
-        .btn-secondary:hover {
-            background: #d1d5db;
-        }
-
-        .btn-danger {
-            background: #ef4444;
-            color: white;
-        }
-
-        .btn-danger:hover {
-            background: #dc2626;
-        }
-
-        /* Messages */
-        .error-message {
-            display: none;
-            padding: 10px;
-            background: #fee2e2;
-            color: #991b1b;
-            border-radius: 6px;
-            font-size: 12px;
-            margin-bottom: 12px;
-        }
-
-        .error-message.show {
-            display: block;
-        }
-
-        .success-message {
-            display: none;
-            padding: 10px;
-            background: #d1fae5;
-            color: #065f46;
-            border-radius: 6px;
-            font-size: 12px;
-            margin-bottom: 12px;
-        }
-
-        .success-message.show {
-            display: block;
-        }
-
-        /* Loading State */
         button:disabled {
             opacity: 0.6;
             cursor: not-allowed;
         }
 
-        .loading {
-            position: relative;
+        .btn-primary {
+            width: 100%;
+            padding: 14px 18px;
+            background: linear-gradient(135deg, #4e7fe7, #5f6cf6);
+            color: #fff;
         }
 
-        .spinner {
-            display: inline-block;
-            width: 12px;
-            height: 12px;
-            border: 2px solid rgba(255, 255, 255, 0.3);
+        .btn-primary:hover:not(:disabled) {
+            filter: brightness(1.04);
+        }
+
+        .dashboard-section {
+            padding: 0;
+        }
+
+        .topbar {
+            background: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 16px 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+        }
+
+        .profile {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            min-width: 0;
+        }
+
+        .avatar {
+            width: 44px;
+            height: 44px;
             border-radius: 50%;
-            border-top-color: white;
-            animation: spin 0.6s linear infinite;
-            margin-right: 6px;
+            border: 2px solid #8a90ff;
+            color: #6f76f8;
+            background: #f7f8ff;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: 800;
+            flex-shrink: 0;
         }
 
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+        .profile-meta {
+            min-width: 0;
+        }
+
+        .profile-name {
+            font-size: 16px;
+            font-weight: 800;
+            line-height: 1.2;
+        }
+
+        .profile-email {
+            font-size: 12px;
+            color: var(--muted);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .status-panel {
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border-radius: 999px;
+            padding: 10px 14px;
+            font-size: 14px;
+            font-weight: 800;
+            background: #f9e9ec;
+            color: #da5b68;
+        }
+
+        .status-badge.online,
+        .status-badge.tracking {
+            background: #ebfbf4;
+            color: #179d74;
+        }
+
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: currentColor;
+            box-shadow: 0 0 0 4px rgba(31, 191, 143, 0.14);
+        }
+
+        .logout-link {
+            background: none;
+            color: #ff6666;
+            text-decoration: underline;
+            padding: 0;
+            margin-top: 10px;
+            font-size: 13px;
+        }
+
+        .messages {
+            padding: 12px 24px 0;
+        }
+
+        .error-message,
+        .success-message {
+            display: none;
+            border-radius: 14px;
+            padding: 12px 14px;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .error-message.show {
+            display: block;
+            background: #ffe7e9;
+            color: #c03b47;
+        }
+
+        .success-message.show {
+            display: block;
+            background: #e8fbf2;
+            color: #187f60;
+        }
+
+        .dashboard-content {
+            padding: 18px 20px 24px;
+        }
+
+        .section-title {
+            color: var(--heading);
+            font-size: 16px;
+            font-weight: 900;
+            letter-spacing: 0.06em;
+            margin: 0 0 10px 6px;
+            text-transform: uppercase;
+        }
+
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            box-shadow: var(--shadow);
+            padding: 18px;
+            margin-bottom: 18px;
+        }
+
+        .activity-url {
+            font-size: 13px;
+            font-weight: 800;
+            line-height: 1.35;
+            color: #19385c;
+            margin-top: 4px;
+            word-break: break-all;
+        }
+
+        .split-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+            margin-top: 14px;
+        }
+
+        .meta-label,
+        .mini-label {
+            color: var(--heading);
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 4px;
+        }
+
+        .meta-value {
+            font-size: 15px;
+            font-weight: 800;
+            color: #5b63ff;
+        }
+
+        .meta-value.dark {
+            color: #1f3659;
+        }
+
+        .score-row {
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            gap: 14px;
+        }
+
+        .score-big {
+            font-size: 22px;
+            font-weight: 900;
+            color: #5d63ff;
+            line-height: 1;
+        }
+
+        .score-side {
+            text-align: right;
+            font-size: 12px;
+            font-weight: 800;
+            color: var(--heading);
+        }
+
+        .score-side strong {
+            font-size: 15px;
+        }
+
+        .score-side .productive {
+            color: #20b48a;
+        }
+
+        .score-side .unproductive {
+            color: #ff6678;
+        }
+
+        .progress-track {
+            margin-top: 14px;
+            width: 100%;
+            height: 10px;
+            border-radius: 999px;
+            background: #ebeeff;
+            overflow: hidden;
+        }
+
+        .progress-fill {
+            width: 0%;
+            height: 100%;
+            border-radius: 999px;
+            background: linear-gradient(90deg, #6178ff, #5f59ea);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+            margin-bottom: 18px;
+        }
+
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            box-shadow: var(--shadow);
+            padding: 16px;
+            min-height: 92px;
+        }
+
+        .stat-value {
+            font-size: 18px;
+            font-weight: 900;
+            color: #18375f;
+            margin-top: 6px;
+            word-break: break-word;
+        }
+
+        .stat-value.linkish {
+            color: #5b63ff;
+        }
+
+        .table-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            min-height: 276px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .scroll-table {
+            max-height: 360px;
+            overflow-y: auto;
+        }
+
+        .history-table-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+
+        .history-title {
+            font-weight: 800;
+            color: #1e3a5f;
+            max-width: 170px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .history-url {
+            display: block;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--muted);
+            max-width: 240px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 4px;
+        }
+
+        .compact-cell {
+            font-size: 12px;
+            font-weight: 700;
+            color: #355273;
+            vertical-align: top;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 14px 12px;
+            border-bottom: 1px solid #e6edf6;
+            font-size: 13px;
+        }
+
+        th {
+            color: var(--heading);
+            font-weight: 900;
+            text-transform: uppercase;
+            background: #fbfcff;
+        }
+
+        td {
+            color: #294765;
+            font-weight: 700;
+        }
+
+        td.domain-cell {
+            color: #6a63ff;
+        }
+
+        .empty-state {
+            padding: 24px;
+            color: var(--muted);
+            font-size: 14px;
+            text-align: center;
+        }
+
+        .footer-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 12px;
+            padding: 14px 20px 20px;
+        }
+
+        .btn-secondary {
+            background: #f4f7fc;
+            border: 1px solid var(--border);
+            color: #1a3352;
+            padding: 14px 22px;
+            min-width: 176px;
+        }
+
+        .btn-accent {
+            background: linear-gradient(135deg, #6478ff, #5e58ec);
+            color: #fff;
+            padding: 14px 24px;
+            min-width: 104px;
+        }
+
+        .hidden {
+            display: none !important;
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- Header -->
-        <div class="header">
-            <h1>Activity Monitor</h1>
-            <span id="statusBadge" class="status-badge offline">
-                <span class="dot offline"></span>
-                Offline
-            </span>
-        </div>
+    <div class="app-shell">
+        <section id="authSection" class="auth-section show">
+            <div class="auth-wrap">
+                <div class="auth-card">
+                    <h1>Activity Monitor</h1>
+                    <p>Sign in to restore your live dashboard and start syncing website activity.</p>
 
-        <!-- Messages -->
-        <div id="errorMessage" class="error-message"></div>
-        <div id="successMessage" class="success-message"></div>
+                    <div id="errorMessage" class="error-message"></div>
+                    <div id="successMessage" class="success-message"></div>
 
-        <!-- Auth Section (Login Form) -->
-        <div id="authSection" class="auth-section show">
-            <form id="loginForm">
-                <div class="form-group">
-                    <label for="email">Email</label>
-                    <input 
-                        type="email" 
-                        id="email" 
-                        placeholder="employee@company.com" 
-                        required
-                    >
-                </div>
-                <div class="form-group">
-                    <label for="password">Password</label>
-                    <input 
-                        type="password" 
-                        id="password" 
-                        placeholder="••••••••" 
-                        required
-                    >
-                </div>
-                <button type="submit" class="btn-primary">Sign In</button>
-            </form>
-        </div>
-
-        <!-- User Section (When Logged In) -->
-        <div id="userSection" class="user-section">
-            <div class="user-info">
-                <p><strong>Name:</strong> <span id="userName"></span></p>
-                <p><strong>Email:</strong> <span id="userEmail"></span></p>
-            </div>
-
-            <div class="activity-section">
-                <div class="activity-label">Currently Viewing</div>
-                <div class="activity-item">
-                    <div class="activity-label">Website</div>
-                    <div class="activity-value" id="currentDomain">-</div>
-                </div>
-                <div class="activity-item">
-                    <div class="activity-label">Time Spent</div>
-                    <div class="activity-value time" id="currentTime">0s</div>
+                    <form id="loginForm">
+                        <div class="form-group">
+                            <label for="email">Email</label>
+                            <input type="email" id="email" placeholder="employee@company.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="password">Password</label>
+                            <input type="password" id="password" placeholder="Enter password" required>
+                        </div>
+                        <button type="submit" class="btn-primary">Sign In</button>
+                    </form>
                 </div>
             </div>
+        </section>
 
-            <div id="trackingControls">
-                <button id="stopTrackingBtn" class="btn-secondary" style="display: none;">
-                    Stop Tracking
-                </button>
-                <button id="startTrackingBtn" class="btn-primary" style="display: none;">
-                    Start Tracking
-                </button>
+        <section id="dashboardSection" class="dashboard-section">
+            <header class="topbar">
+                <div class="profile">
+                    <div id="avatarInitial" class="avatar">E</div>
+                    <div class="profile-meta">
+                        <div id="userName" class="profile-name">Employee</div>
+                        <div id="userEmail" class="profile-email">employee@company.com (Employee)</div>
+                    </div>
+                </div>
+
+                <div class="status-panel">
+                    <div id="statusBadge" class="status-badge offline">
+                        <span class="status-dot"></span>
+                        <span id="statusText">Offline</span>
+                    </div>
+                    <button id="logoutBtn" class="logout-link">Logout</button>
+                </div>
+            </header>
+
+            <div class="messages">
+                <div id="dashboardErrorMessage" class="error-message"></div>
+                <div id="dashboardSuccessMessage" class="success-message"></div>
             </div>
 
-            <button id="logoutBtn" class="btn-danger">Sign Out</button>
-        </div>
+            <main class="dashboard-content">
+                <section>
+                    <h2 class="section-title">Live Activity</h2>
+                    <div class="card">
+                        <div class="mini-label">Current Website</div>
+                        <div id="currentUrl" class="activity-url">No active website</div>
+
+                        <div class="split-grid">
+                            <div>
+                                <div class="mini-label">Current Domain</div>
+                                <div id="currentDomain" class="meta-value">-</div>
+                            </div>
+                            <div>
+                                <div class="mini-label">Time Active</div>
+                                <div id="currentTime" class="meta-value dark">0s</div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <section>
+                    <h2 class="section-title">Productivity Score</h2>
+                    <div class="card">
+                        <div class="score-row">
+                            <div>
+                                <div class="mini-label">Daily Percentage</div>
+                                <div id="productivityPercent" class="score-big">0%</div>
+                            </div>
+                            <div class="score-side">
+                                <div>
+                                    <strong id="productiveTime" class="productive">0s</strong>
+                                    <span> vs </span>
+                                    <strong id="unproductiveTime" class="unproductive">0s</strong>
+                                </div>
+                                <div>Productive / Unproductive</div>
+                            </div>
+                        </div>
+                        <div class="progress-track">
+                            <div id="productivityBar" class="progress-fill"></div>
+                        </div>
+                    </div>
+                </section>
+
+                <section>
+                    <h2 class="section-title">Today's Performance</h2>
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="mini-label">Total Usage Time</div>
+                            <div id="totalUsageTime" class="stat-value">0s</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="mini-label">Websites Tracked</div>
+                            <div id="websitesTracked" class="stat-value">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="mini-label">Total Visits</div>
+                            <div id="totalVisits" class="stat-value">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="mini-label">Most Visited</div>
+                            <div id="mostVisited" class="stat-value linkish">-</div>
+                        </div>
+                    </div>
+                </section>
+
+                <section>
+                    <h2 class="section-title">Recent Website Activity</h2>
+                    <div class="table-card">
+                        <div class="scroll-table">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Domain</th>
+                                        <th>Time Spent</th>
+                                        <th>Visits</th>
+                                        <th>Last Visit</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="recentActivityBody"></tbody>
+                            </table>
+                        </div>
+                        <div id="recentActivityEmpty" class="empty-state hidden">No website activity logged today.</div>
+                    </div>
+                </section>
+
+                <section>
+                    <h2 class="section-title">Recent Browser History</h2>
+                    <div class="history-table-card">
+                        <div class="scroll-table">
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>Website / Page Title</th>
+                                        <th>Full URL</th>
+                                        <th>Domain</th>
+                                        <th>Visit Time</th>
+                                        <th>Time Spent</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="browserHistoryBody"></tbody>
+                            </table>
+                        </div>
+                        <div id="browserHistoryEmpty" class="empty-state hidden">No recent tracked browser history is available yet.</div>
+                    </div>
+                </section>
+            </main>
+
+            <footer class="footer-actions">
+                <button id="openPortalBtn" class="btn-secondary">Open Web Portal</button>
+                <button id="refreshBtn" class="btn-accent">Refresh</button>
+            </footer>
+        </section>
     </div>
 
     <script src="popup.js"></script>

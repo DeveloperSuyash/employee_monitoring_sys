@@ -369,23 +369,38 @@ export default function AdminDashboard() {
                 </div>
 
                 <div className="mt-6">
-                  <h3 className="text-base font-semibold text-slate-900 mb-3">Recent activity logs</h3>
+                  <h3 className="text-base font-semibold text-slate-900 mb-3">Recent activity logs (last 50 records)</h3>
                   {selectedEmployeeDetails.logs?.length ? (
-                    <div className="space-y-3">
-                      {selectedEmployeeDetails.logs.map((log: any, index: number) => (
-                        <div key={index} className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                            <div>
-                              <p className="font-semibold text-slate-900">{log.url || log.domain || 'Unknown site'}</p>
-                              <p className="text-xs text-slate-500">{log.domain}</p>
-                            </div>
-                            <div className="text-sm font-semibold text-slate-700">
-                              {formatSeconds(Number(log.time_spent || log.duration_seconds || 0))}
-                            </div>
-                          </div>
-                          <p className="mt-2 text-xs text-slate-500">{new Date(log.created_at).toLocaleString()}</p>
-                        </div>
-                      ))}
+                    <div className="overflow-x-auto rounded-2xl border border-slate-200">
+                      <table className="w-full border-collapse text-left">
+                        <thead className="bg-slate-50">
+                          <tr>
+                            <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500">Domain</th>
+                            <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500">Time Spent</th>
+                            <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500">Visits</th>
+                            <th className="px-4 py-3 text-xs font-bold uppercase tracking-wider text-slate-500">Last Visit</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 bg-white">
+                          {selectedEmployeeDetails.logs.map((log: any, index: number) => (
+                            <tr key={`${log.created_at}-${index}`} className="hover:bg-slate-50/70">
+                              <td className="px-4 py-3">
+                                <div className="font-semibold text-slate-900">{log.domain || 'Unknown domain'}</div>
+                                <div className="text-xs text-slate-500 truncate max-w-[280px]">{log.url || '-'}</div>
+                              </td>
+                              <td className="px-4 py-3 text-sm font-semibold text-slate-700">
+                                {formatSeconds(Number(log.time_spent || 0))}
+                              </td>
+                              <td className="px-4 py-3 text-sm font-semibold text-slate-700">
+                                {Number(log.visit_count || 0)}
+                              </td>
+                              <td className="px-4 py-3 text-sm text-slate-500">
+                                {new Date(log.created_at).toLocaleString()}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
                   ) : (
                     <p className="text-sm text-slate-500">No tracked activity found for this employee.</p>
