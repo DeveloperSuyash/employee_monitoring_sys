@@ -72,6 +72,25 @@ export default function AdminDashboard() {
     { label: 'US Pacific', value: 'America/Los_Angeles' }
   ];
 
+  function resolveTimezone(value?: string | null) {
+    return value || 'Asia/Kolkata';
+  }
+
+  function getTimezoneLabel(timeZone?: string | null) {
+    switch (resolveTimezone(timeZone)) {
+      case 'Asia/Kolkata':
+        return 'IST';
+      case 'America/New_York':
+        return 'US Eastern';
+      case 'America/Chicago':
+        return 'US Central';
+      case 'America/Los_Angeles':
+        return 'US Pacific';
+      default:
+        return resolveTimezone(timeZone);
+    }
+  }
+
   useEffect(() => {
     void loadData();
     void loadCurrentUser();
@@ -325,7 +344,9 @@ export default function AdminDashboard() {
                           {emp.name ? emp.name[0] : emp.email?.[0]?.toUpperCase() || '?'}
                         </div>
                         <div>
-                          <div className="font-semibold text-slate-900">{emp.name || 'No Name'}</div>
+                          <div className="font-semibold text-slate-900">
+                            {emp.name || 'No Name'} <span className="text-slate-500">({getTimezoneLabel(emp.timezone)})</span>
+                          </div>
                           <div className="text-xs text-slate-400">{emp.email}</div>
                         </div>
                       </div>
