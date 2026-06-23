@@ -126,6 +126,32 @@ export async function updateUserRoleAction(userId: string, newRole: string) {
   }
 }
 
+export async function resetUserPasswordAction(userId: string, newPassword: string) {
+  if (!userId || !newPassword) {
+    throw new Error('User ID and new password are required.');
+  }
+
+  if (newPassword.length < 8) {
+    throw new Error('Password must be at least 8 characters long.');
+  }
+
+  try {
+    const supabaseAdmin = getSupabaseAdmin();
+
+    const { error } = await supabaseAdmin.auth.admin.updateUserById(userId, {
+      password: newPassword
+    });
+
+    if (error) throw new Error(error.message);
+
+    revalidatePath('/admin');
+    return { success: true };
+  } catch (error: any) {
+    console.error('[resetUserPasswordAction] Error:', error.message);
+    throw new Error(`Password Reset Failed: ${error.message}`);
+  }
+}
+
 export async function deleteUserAction(userId: string) {
   try {
     const supabaseAdmin = getSupabaseAdmin();

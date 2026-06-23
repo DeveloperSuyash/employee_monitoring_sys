@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { fetchAdminDashboard, fetchEmployeeDetails } from '@/lib/stats';
-import { createUserAction, deleteUserAction, updateUserRoleAction, updateUserTimezoneAction, toggleUserStatusAction } from '@/app/actions/user-actions';
+import { createUserAction, deleteUserAction, resetUserPasswordAction, updateUserRoleAction, updateUserTimezoneAction, toggleUserStatusAction } from '@/app/actions/user-actions';
 import { supabase } from '@/lib/supabase';
 
 const ADMIN_EMAIL = 'bhuisompa001@gmail.com';
@@ -65,6 +65,11 @@ export default function AdminDashboard() {
   const [editingTimezoneUserId, setEditingTimezoneUserId] = useState<string | null>(null);
   const [timezoneByUserId, setTimezoneByUserId] = useState<Record<string, string>>({});
   const [timezoneSavingId, setTimezoneSavingId] = useState<string | null>(null);
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [resetPasswordUser, setResetPasswordUser] = useState<any | null>(null);
+  const [resetPasswordForm, setResetPasswordForm] = useState({ password: '', confirmPassword: '' });
+  const [resetPasswordSubmitting, setResetPasswordSubmitting] = useState(false);
+  const [toasts, setToasts] = useState<Array<{ id: string; type: 'success' | 'error'; message: string }>>([]);
   const TIMEZONE_OPTIONS = [
     { label: 'India (IST)', value: 'Asia/Kolkata' },
     { label: 'US Eastern', value: 'America/New_York' },
@@ -89,6 +94,14 @@ export default function AdminDashboard() {
       default:
         return resolveTimezone(timeZone);
     }
+  }
+
+  function pushToast(type: 'success' | 'error', message: string) {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setToasts((current) => [...current, { id, type, message }]);
+    setTimeout(() => {
+      setToasts((current) => current.filter((toast) => toast.id !== id));
+    }, 3000);
   }
 
   useEffect(() => {
@@ -227,6 +240,57 @@ export default function AdminDashboard() {
     if (confirm('Are you sure you want to delete this user? This cannot be undone.')) {
       await deleteUserAction(id);
       await loadData();
+    }
+  };
+
+  const handleOpenResetPassword = (employee: any) => {
+    if (currentUser?.role !== 'admin') {
+      pushToast('error', 'Only admins can reset passwords.');
+      return;
+    }
+
+    setResetPasswordUser(employee);
+    setResetPasswordForm({ password: '', confirmPassword: '' });
+    setShowPasswordModal(true);
+  };
+
+  const handleResetPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (currentUser?.role !== 'admin') {
+      pushToast('error', 'Only admins can reset passwords.');
+      return;
+    }
+
+    const { password, confirmPassword } = resetPasswordForm;
+
+    if (password.length < 8) {
+      pushToast('error', 'Password must be at least 8 characters long.');
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      pushToast('error', 'Passwords do not match.');
+      return;
+    }
+
+    if (!resetPasswordUser?.id) {
+      pushToast('error', 'No user selected.');
+      return;
+    }
+
+    setResetPasswordSubmitting(true);
+    try {
+      await resetUserPasswordAction(resetPasswordUser.id, password);
+      pushToast('success', `Password reset for ${resetPasswordUser.name || resetPasswordUser.email || 'user'}.`);
+      setShowPasswordModal(false);
+      setResetPasswordUser(null);
+      setResetPasswordForm({ password: '', confirmPassword: '' });
+      await loadData();
+    } catch (err: any) {
+      pushToast('error', err?.message || 'Failed to reset password.');
+    } finally {
+      setResetPasswordSubmitting(false);
     }
   };
 
@@ -379,6 +443,9 @@ export default function AdminDashboard() {
                           <MenuItem icon={UserIcon} label="Employee" onClick={() => handleChangeRole(emp.id, 'employee')} disabled={emp.role === 'employee'} />
                           <div className="my-1 h-[1px] bg-slate-100" />
                           <MenuItem icon={Clock} label="Edit Time Zone" onClick={() => setEditingTimezoneUserId(emp.id)} />
+                          {currentUser?.role === 'admin' && (
+                            <MenuItem icon={Shield} label="Reset Password" onClick={() => handleOpenResetPassword(emp)} />
+                          )}
                           <MenuItem
                             icon={emp.status === 'active' ? XCircle : CheckCircle}
                             label={emp.status === 'active' ? 'Deactivate' : 'Activate'}
@@ -629,6 +696,98 @@ export default function AdminDashboard() {
           </div>
         </div>
       )}
+
+      {showPasswordModal && resetPasswordUser && currentUser?.role === 'admin' && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/50 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
+            <div className="mb-4 flex items-start justify-between gap-4">
+              <div>
+                <p className="text-xs font-bold uppercase tracking-[0.3em] text-slate-400">Admin Action</p>
+                <h3 className="mt-2 text-xl font-bold text-slate-900">Reset Password</h3>
+                <p className="mt-1 text-sm text-slate-500">
+                  {resetPasswordUser.name || resetPasswordUser.email || 'Selected user'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowPasswordModal(false);
+                  setResetPasswordUser(null);
+                }}
+                className="rounded-full p-2 text-slate-400 transition hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleResetPassword} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700" htmlFor="new-password">
+                  New Password
+                </label>
+                <input
+                  id="new-password"
+                  type="password"
+                  value={resetPasswordForm.password}
+                  onChange={(e) => setResetPasswordForm((current) => ({ ...current, password: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-indigo-500"
+                  placeholder="Enter new password"
+                  autoComplete="new-password"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-slate-700" htmlFor="confirm-password">
+                  Confirm Password
+                </label>
+                <input
+                  id="confirm-password"
+                  type="password"
+                  value={resetPasswordForm.confirmPassword}
+                  onChange={(e) => setResetPasswordForm((current) => ({ ...current, confirmPassword: e.target.value }))}
+                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none transition focus:border-indigo-500"
+                  placeholder="Confirm new password"
+                  autoComplete="new-password"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowPasswordModal(false);
+                    setResetPasswordUser(null);
+                  }}
+                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={resetPasswordSubmitting}
+                  className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {resetPasswordSubmitting ? 'Resetting...' : 'Reset Password'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      <div className="fixed bottom-4 right-4 z-[130] space-y-3">
+        {toasts.map((toast) => (
+          <div
+            key={toast.id}
+            className={cn(
+              'max-w-sm rounded-2xl border px-4 py-3 text-sm font-semibold shadow-lg',
+              toast.type === 'success'
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                : 'border-rose-200 bg-rose-50 text-rose-700'
+            )}
+          >
+            {toast.message}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
