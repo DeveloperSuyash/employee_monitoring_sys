@@ -9,6 +9,8 @@ const CONFIG = {
 const STORAGE_KEYS = {
   USER_ID: 'employee_user_id',
   SESSION_TOKEN: 'session_token',
+  SESSION_REFRESH_TOKEN: 'session_refresh_token',
+  SESSION_EXPIRES_AT: 'session_expires_at',
   EMAIL: 'employee_email',
   NAME: 'employee_name',
   TIMEZONE: 'employee_timezone',
@@ -17,6 +19,9 @@ const STORAGE_KEYS = {
   RECENT_HISTORY: 'recent_browser_history',
   TRACKING_STATS: 'tracking_stats'
 };
+
+const AUTH_REFRESH_BUFFER_MS = 60 * 1000;
+const SUPABASE_REFRESH_ENDPOINT = '/auth/v1/token?grant_type=refresh_token';
 
 // ─── Tab Tracking ───
 let activeTabId = null;
@@ -39,6 +44,175 @@ const DEBUG_PREFIX = '[TrackingDebug]';
 
 function logTrackingDebug(event, details = {}) {
   console.log(`${DEBUG_PREFIX} ${event}`, details);
+}
+
+function getLocalStorage(keys) {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(keys, (result) => {
+      resolve(result);
+    });
+  });
+}
+
+function setLocalStorage(values) {
+  return new Promise((resolve, reject) => {
+    chrome.storage.local.set(values, () => {
+      if (chrome.runtime.lastError) {
+        reject(new Error(chrome.runtime.lastError.message));
+        return;
+      }
+      resolve();
+    });
+  });
+}
+
+async function getSessionState() {
+  return getLocalStorage([
+    STORAGE_KEYS.USER_ID,
+    STORAGE_KEYS.SESSION_TOKEN,
+    STORAGE_KEYS.SESSION_REFRESH_TOKEN,
+    STORAGE_KEYS.SESSION_EXPIRES_AT
+  ]);
+}
+
+async function persistSessionState({ accessToken, refreshToken, expiresAt }) {
+  const values = {};
+
+  if (accessToken !== undefined) {
+    values[STORAGE_KEYS.SESSION_TOKEN] = accessToken || null;
+  }
+
+  if (refreshToken !== undefined) {
+    values[STORAGE_KEYS.SESSION_REFRESH_TOKEN] = refreshToken || null;
+  }
+
+  if (expiresAt !== undefined) {
+    values[STORAGE_KEYS.SESSION_EXPIRES_AT] = expiresAt || null;
+  }
+
+  if (Object.keys(values).length > 0) {
+    await setLocalStorage(values);
+  }
+}
+
+function getSessionExpiryMs(expiresAt) {
+  const numeric = Number(expiresAt);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return null;
+  }
+
+  return numeric > 1e12 ? numeric : numeric * 1000;
+}
+
+function sessionNeedsRefresh(expiresAt) {
+  const expiresAtMs = getSessionExpiryMs(expiresAt);
+  if (!expiresAtMs) {
+    return false;
+  }
+
+  return Date.now() >= (expiresAtMs - AUTH_REFRESH_BUFFER_MS);
+}
+
+async function refreshSupabaseSession(reason = 'expired-session') {
+  const sessionState = await getSessionState();
+  const refreshToken = sessionState[STORAGE_KEYS.SESSION_REFRESH_TOKEN];
+
+  if (!refreshToken) {
+    console.log('[AuthDebug] token refresh failed', {
+      reason,
+      error: 'missing_refresh_token'
+    });
+    return null;
+  }
+
+  console.log('[AuthDebug] token refresh started', { reason });
+
+  try {
+    const response = await fetch(`${CONFIG.SUPABASE_URL}${SUPABASE_REFRESH_ENDPOINT}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'apikey': CONFIG.SUPABASE_ANON_KEY,
+        'Accept': 'application/json'
+      },
+      body: JSON.stringify({ refresh_token: refreshToken })
+    });
+
+    const responseText = await response.text();
+    const payload = responseText ? JSON.parse(responseText) : null;
+
+    if (!response.ok) {
+      throw new Error(payload?.error_description || payload?.msg || payload?.message || `Refresh failed (${response.status})`);
+    }
+
+    const nextAccessToken = payload?.access_token || payload?.session?.access_token;
+    const nextRefreshToken = payload?.refresh_token || payload?.session?.refresh_token || refreshToken;
+    const nextExpiresAt = payload?.expires_at
+      || payload?.session?.expires_at
+      || (payload?.expires_in ? Math.floor(Date.now() / 1000) + Number(payload.expires_in) : null);
+
+    if (!nextAccessToken) {
+      throw new Error('Refresh response missing access token');
+    }
+
+    await persistSessionState({
+      accessToken: nextAccessToken,
+      refreshToken: nextRefreshToken,
+      expiresAt: nextExpiresAt
+    });
+    console.log('[AuthDebug] access token refreshed', {
+      reason,
+      expiresAt: nextExpiresAt
+    });
+
+    if (payload?.user?.id) {
+      await setLocalStorage({
+        [STORAGE_KEYS.USER_ID]: payload.user.id,
+        [STORAGE_KEYS.EMAIL]: payload.user.email || sessionState[STORAGE_KEYS.EMAIL] || null,
+        [STORAGE_KEYS.NAME]: payload.user.user_metadata?.full_name
+          || payload.user.user_metadata?.name
+          || sessionState[STORAGE_KEYS.NAME]
+          || null
+      });
+    }
+
+    console.log('[AuthDebug] token refresh succeeded', {
+      reason,
+      expiresAt: nextExpiresAt
+    });
+
+    return {
+      accessToken: nextAccessToken,
+      refreshToken: nextRefreshToken,
+      expiresAt: nextExpiresAt
+    };
+  } catch (error) {
+    console.log('[AuthDebug] token refresh failed', {
+      reason,
+      error: error.message
+    });
+    return null;
+  }
+}
+
+async function getValidAccessToken({ forceRefresh = false, reason = 'auth-required' } = {}) {
+  const sessionState = await getSessionState();
+  const accessToken = sessionState[STORAGE_KEYS.SESSION_TOKEN];
+  if (!accessToken) {
+    return null;
+  }
+
+  if (!forceRefresh && !sessionNeedsRefresh(sessionState[STORAGE_KEYS.SESSION_EXPIRES_AT])) {
+    return accessToken;
+  }
+
+  const refreshed = await refreshSupabaseSession(reason);
+  return refreshed?.accessToken || null;
+}
+
+function isJwtExpiredError(errorText = '', status = 0) {
+  const normalized = String(errorText || '').toLowerCase();
+  return status === 401 || status === 403 || normalized.includes('jwt expired') || normalized.includes('invalid jwt');
 }
 
 // ─── Supabase Client (Simple Implementation) ───
@@ -106,20 +280,39 @@ class SupabaseClient {
         'Prefer': 'return=minimal'
       };
 
-      if (sessionToken) {
-        headers['Authorization'] = `Bearer ${sessionToken}`;
-      } else {
-        headers['Authorization'] = `Bearer ${this.key}`;
-      }
+      let resolvedToken = sessionToken || await getValidAccessToken({ reason: 'activity-insert' });
+      let refreshedOnce = false;
 
-      const response = await fetch(`${this.url}/rest/v1/activity_logs`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(logData)
-      });
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        headers['Authorization'] = resolvedToken ? `Bearer ${resolvedToken}` : `Bearer ${this.key}`;
 
-      if (!response.ok) {
+        const response = await fetch(`${this.url}/rest/v1/activity_logs`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(logData)
+        });
+
+        if (response.ok) {
+          logTrackingDebug('supabase-write-succeeded', {
+            status: response.status,
+            payload: logData
+          });
+          return true;
+        }
+
         const error = await response.text();
+        if (!refreshedOnce && isJwtExpiredError(error, response.status)) {
+          const refreshed = await refreshSupabaseSession('activity-insert');
+          if (refreshed?.accessToken) {
+            refreshedOnce = true;
+            resolvedToken = refreshed.accessToken;
+            console.log('[AuthDebug] request retried after refresh', {
+              reason: 'activity-insert'
+            });
+            continue;
+          }
+        }
+
         logTrackingDebug('supabase-write-failed', {
           status: response.status,
           error,
@@ -129,11 +322,7 @@ class SupabaseClient {
         return false;
       }
 
-      logTrackingDebug('supabase-write-succeeded', {
-        status: response.status,
-        payload: logData
-      });
-      return true;
+      return false;
     } catch (error) {
       logTrackingDebug('supabase-write-error', {
         message: error.message,
@@ -773,7 +962,7 @@ async function saveTabActivity(snapshot = createTrackingSnapshot(), reason = 'ac
     return;
   }
 
-  const sessionToken = await getStorageValue(STORAGE_KEYS.SESSION_TOKEN);
+  let sessionToken = await getValidAccessToken({ reason: 'save-tab-activity' });
   if (!sessionToken) {
     console.warn('[Extension] No session token, skipping activity save');
     return;
@@ -1008,7 +1197,15 @@ async function getStorageValue(key) {
 async function clearUserSession() {
   return new Promise((resolve) => {
     chrome.storage.local.remove(
-      [STORAGE_KEYS.USER_ID, STORAGE_KEYS.SESSION_TOKEN, STORAGE_KEYS.EMAIL, STORAGE_KEYS.NAME, STORAGE_KEYS.TIMEZONE],
+      [
+        STORAGE_KEYS.USER_ID,
+        STORAGE_KEYS.SESSION_TOKEN,
+        STORAGE_KEYS.SESSION_REFRESH_TOKEN,
+        STORAGE_KEYS.SESSION_EXPIRES_AT,
+        STORAGE_KEYS.EMAIL,
+        STORAGE_KEYS.NAME,
+        STORAGE_KEYS.TIMEZONE
+      ],
       resolve
     );
   });
@@ -1027,6 +1224,8 @@ async function handleRuntimeMessage(request, sender, sendResponse) {
       // Store user info after login
       await setStorageValue(STORAGE_KEYS.USER_ID, request.userId);
       await setStorageValue(STORAGE_KEYS.SESSION_TOKEN, request.token);
+      await setStorageValue(STORAGE_KEYS.SESSION_REFRESH_TOKEN, request.refreshToken || null);
+      await setStorageValue(STORAGE_KEYS.SESSION_EXPIRES_AT, request.expiresAt || null);
       await setStorageValue(STORAGE_KEYS.EMAIL, request.email);
       await setStorageValue(STORAGE_KEYS.NAME, request.name);
       await setStorageValue(STORAGE_KEYS.TIMEZONE, request.timezone || 'Asia/Kolkata');

@@ -5,13 +5,10 @@ let pageStartTime = Date.now();
 let lastUserInteractionAt = Date.now();
 let idlePopupVisible = false;
 let idleAutoCloseTimer = null;
-let globalLastUserInteractionAt = Date.now();
 
 const IDLE_TIMEOUT_MS = 60000;
 const IDLE_CHECK_INTERVAL_MS = 5000;
 const IDLE_AUTO_CLOSE_MS = 30000;
-const GLOBAL_ACTIVITY_STORAGE_KEY = 'browser_wide_last_user_interaction_at';
-
 console.log('[IdleDebug] content-script.js loaded', {
   href: window.location.href,
   protocol: window.location.protocol,
@@ -37,31 +34,13 @@ function markIdleLocally() {
 }
 
 async function loadGlobalLastUserInteraction() {
-  return new Promise((resolve) => {
-    chrome.storage.local.get([GLOBAL_ACTIVITY_STORAGE_KEY], (result) => {
-      const storedValue = Number(result[GLOBAL_ACTIVITY_STORAGE_KEY]);
-      if (Number.isFinite(storedValue) && storedValue > 0) {
-        globalLastUserInteractionAt = storedValue;
-      }
-      resolve(globalLastUserInteractionAt);
-    });
-  });
-}
-
-async function updateGlobalLastUserInteraction(timestamp = Date.now()) {
-  globalLastUserInteractionAt = timestamp;
-  return new Promise((resolve) => {
-    chrome.storage.local.set({ [GLOBAL_ACTIVITY_STORAGE_KEY]: timestamp }, () => {
-      resolve();
-    });
-  });
+  return Promise.resolve(Date.now());
 }
 
 function closeIdlePopup() {
   const popup = document.getElementById('employee-idle-popup');
   if (popup) {
     popup.remove();
-    console.log('[IdleDebug] popup removed');
   }
 
   idlePopupVisible = false;
@@ -187,6 +166,10 @@ function buildIdlePopup() {
 }
 
 function showIdlePopup() {
+  if (document.visibilityState !== 'visible') {
+    return;
+  }
+
   if (idlePopupVisible || isAdminOrHrPage()) {
     console.log('[IdleDebug] showIdlePopup skipped', {
       idlePopupVisible,
@@ -196,7 +179,7 @@ function showIdlePopup() {
     return;
   }
 
-  console.log('[IdleDebug] showIdlePopup called', {
+  console.log('[IdleDebug] popup opened', {
     href: window.location.href,
     idleDurationMs: Date.now() - lastUserInteractionAt
   });
@@ -229,33 +212,9 @@ function showIdlePopup() {
   }, IDLE_AUTO_CLOSE_MS);
 }
 
-function checkIdleState() {
-  if (isAdminOrHrPage()) {
-    console.log('[IdleDebug] checkIdleState skipped on admin/hr/chrome page', {
-      href: window.location.href,
-      protocol: window.location.protocol
-    });
-    return;
-  }
-
-  const idleFor = Date.now() - globalLastUserInteractionAt;
-  console.log('[IdleDebug] checkIdleState tick', {
-    href: window.location.href,
-    idleForMs: idleFor,
-    idlePopupVisible,
-    globalLastUserInteractionAt
-  });
-  if (idleFor >= IDLE_TIMEOUT_MS && !idlePopupVisible) {
-    showIdlePopup();
-  }
-}
-
 function handleRealUserActivity() {
   console.log('Popup visible state:', idlePopupVisible);
   updateLastUserInteraction();
-  updateGlobalLastUserInteraction().catch((error) => {
-    console.warn('[IdleDebug] failed to persist global activity timestamp', error);
-  });
 }
 
 document.addEventListener('mousemove', handleRealUserActivity, true);
@@ -267,25 +226,37 @@ document.addEventListener('touchstart', handleRealUserActivity, true);
 
 window.setInterval(checkIdleState, IDLE_CHECK_INTERVAL_MS);
 
-chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== 'local') {
+function checkIdleState() {
+  if (isAdminOrHrPage()) {
+    console.log('[IdleDebug] checkIdleState skipped on admin/hr/chrome page', {
+      href: window.location.href,
+      protocol: window.location.protocol
+    });
     return;
   }
 
-  const change = changes[GLOBAL_ACTIVITY_STORAGE_KEY];
-  if (!change) {
-    return;
+  const idleFor = Date.now() - lastUserInteractionAt;
+  console.log('[IdleDebug] checkIdleState tick', {
+    href: window.location.href,
+    idleForMs: idleFor,
+    idlePopupVisible,
+    lastUserInteractionAt
+  });
+  if (idleFor >= IDLE_TIMEOUT_MS && !idlePopupVisible) {
+    console.log('ACTIVE TAB CHECK', {
+      href: location.href,
+      visibility: document.visibilityState,
+      hasFocus: document.hasFocus()
+    });
+    if (document.visibilityState !== 'visible') {
+      return;
+    }
+    if (!document.hasFocus()) {
+      return;
+    }
+    showIdlePopup();
   }
-
-  const nextValue = Number(change.newValue);
-  if (Number.isFinite(nextValue) && nextValue > 0) {
-    globalLastUserInteractionAt = nextValue;
-  }
-});
-
-loadGlobalLastUserInteraction().catch((error) => {
-  console.warn('[IdleDebug] failed to load global activity timestamp', error);
-});
+}
 
 window.addEventListener('error', (event) => {
   console.error('[IdleDebug] window error', {

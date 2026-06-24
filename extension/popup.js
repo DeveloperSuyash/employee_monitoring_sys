@@ -1,6 +1,10 @@
 const SUPABASE_URL = 'https://lrvwbtfqdjjjqmpfbfvz.supabase.co';
 const SUPABASE_ANON_KEY = 'sb_publishable_4B52bbGWu0RjvGW95_aicA_YLOvJDOt';
 const DASHBOARD_URL = 'http://localhost:3000/employee';
+const SESSION_REFRESH_TOKEN_KEY = 'session_refresh_token';
+const SESSION_EXPIRES_AT_KEY = 'session_expires_at';
+const AUTH_REFRESH_BUFFER_MS = 60 * 1000;
+const SUPABASE_REFRESH_ENDPOINT = '/auth/v1/token?grant_type=refresh_token';
 
 const authSection = document.getElementById('authSection');
 const dashboardSection = document.getElementById('dashboardSection');
@@ -60,6 +64,10 @@ class SupabaseAuth {
     return this._authRequest('/auth/v1/token?grant_type=password', { email, password });
   }
 
+  async refreshSession(refreshToken) {
+    return this._authRequest(SUPABASE_REFRESH_ENDPOINT, { refresh_token: refreshToken });
+  }
+
   async _authRequest(endpoint, data, method = 'POST') {
     const response = await fetch(`${this.url}${endpoint}`, {
       method,
@@ -99,6 +107,141 @@ function getStorage(key) {
 
 function removeStorage(keys) {
   return new Promise((resolve) => chrome.storage.local.remove(keys, resolve));
+}
+
+async function getSessionStorageState() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['session_token', SESSION_REFRESH_TOKEN_KEY, SESSION_EXPIRES_AT_KEY], (result) => {
+      resolve(result);
+    });
+  });
+}
+
+async function persistSessionTokens({ accessToken, refreshToken, expiresAt }) {
+  const values = {};
+  if (accessToken !== undefined) {
+    values.session_token = accessToken || null;
+  }
+  if (refreshToken !== undefined) {
+    values[SESSION_REFRESH_TOKEN_KEY] = refreshToken || null;
+  }
+  if (expiresAt !== undefined) {
+    values[SESSION_EXPIRES_AT_KEY] = expiresAt || null;
+  }
+
+  if (!Object.keys(values).length) {
+    return;
+  }
+
+  await setStorageMultiple(values);
+}
+
+function setStorageMultiple(values) {
+  return new Promise((resolve) => chrome.storage.local.set(values, resolve));
+}
+
+function getExpiresAtMs(expiresAt) {
+  const numeric = Number(expiresAt);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return null;
+  }
+
+  return numeric > 1e12 ? numeric : numeric * 1000;
+}
+
+function sessionNeedsRefresh(expiresAt) {
+  const expiresAtMs = getExpiresAtMs(expiresAt);
+  if (!expiresAtMs) {
+    return false;
+  }
+
+  return Date.now() >= (expiresAtMs - AUTH_REFRESH_BUFFER_MS);
+}
+
+function isJwtExpiredError(errorText = '', status = 0) {
+  const normalized = String(errorText || '').toLowerCase();
+  return status === 401 || status === 403 || normalized.includes('jwt expired') || normalized.includes('invalid jwt');
+}
+
+async function refreshSupabaseSession(reason = 'expired-session') {
+  const sessionState = await getSessionStorageState();
+  const refreshToken = sessionState[SESSION_REFRESH_TOKEN_KEY];
+
+  if (!refreshToken) {
+    console.log('[AuthDebug] token refresh failed', {
+      reason,
+      error: 'missing_refresh_token'
+    });
+    return null;
+  }
+
+  console.log('[AuthDebug] token refresh started', { reason });
+
+  try {
+    const refreshed = await auth.refreshSession(refreshToken);
+    const nextAccessToken = refreshed?.access_token || refreshed?.session?.access_token;
+    const nextRefreshToken = refreshed?.refresh_token || refreshed?.session?.refresh_token || refreshToken;
+    const nextExpiresAt = refreshed?.expires_at
+      || refreshed?.session?.expires_at
+      || (refreshed?.expires_in ? Math.floor(Date.now() / 1000) + Number(refreshed.expires_in) : null);
+
+    if (!nextAccessToken) {
+      throw new Error('Refresh response missing access token');
+    }
+
+    await persistSessionTokens({
+      accessToken: nextAccessToken,
+      refreshToken: nextRefreshToken,
+      expiresAt: nextExpiresAt
+    });
+    console.log('[AuthDebug] access token refreshed', {
+      reason,
+      expiresAt: nextExpiresAt
+    });
+
+    if (refreshed?.user?.id) {
+      await setStorage('employee_user_id', refreshed.user.id);
+      if (refreshed.user.email) {
+        await setStorage('employee_email', refreshed.user.email);
+      }
+      const refreshedName = refreshed.user.user_metadata?.full_name || refreshed.user.user_metadata?.name;
+      if (refreshedName) {
+        await setStorage('employee_name', refreshedName);
+      }
+    }
+
+    console.log('[AuthDebug] token refresh succeeded', {
+      reason,
+      expiresAt: nextExpiresAt
+    });
+
+    return {
+      accessToken: nextAccessToken,
+      refreshToken: nextRefreshToken,
+      expiresAt: nextExpiresAt
+    };
+  } catch (error) {
+    console.log('[AuthDebug] token refresh failed', {
+      reason,
+      error: error.message
+    });
+    return null;
+  }
+}
+
+async function getValidAccessToken({ forceRefresh = false, reason = 'popup-auth-required' } = {}) {
+  const sessionState = await getSessionStorageState();
+  const accessToken = sessionState.session_token;
+  if (!accessToken) {
+    return null;
+  }
+
+  if (!forceRefresh && !sessionNeedsRefresh(sessionState[SESSION_EXPIRES_AT_KEY])) {
+    return accessToken;
+  }
+
+  const refreshed = await refreshSupabaseSession(reason);
+  return refreshed?.accessToken || null;
 }
 
 function sendMessage(action, data = {}) {
@@ -256,6 +399,50 @@ async function parseJsonResponse(response) {
   }
 }
 
+async function fetchJsonWithSessionRetry(url, { method = 'GET', body = null, reason = 'popup-auth-required' } = {}) {
+  let accessToken = await getValidAccessToken({ reason });
+  if (!accessToken) {
+    throw new Error('Session expired. Please sign in again.');
+  }
+
+  const performRequest = (token) => fetch(url, {
+    method,
+    headers: {
+      'apikey': SUPABASE_ANON_KEY,
+      'Authorization': `Bearer ${token}`,
+      'Accept': 'application/json',
+      ...(body ? { 'Content-Type': 'application/json' } : {})
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+
+  let response = await performRequest(accessToken);
+  let payload = await parseJsonResponse(response);
+
+  if (!response.ok && isJwtExpiredError(payload?.message || payload?.error_description || payload?.error?.message || '', response.status)) {
+    const refreshed = await refreshSupabaseSession(reason);
+    if (refreshed?.accessToken) {
+      accessToken = refreshed.accessToken;
+      console.log('[AuthDebug] request retried after refresh', {
+        reason
+      });
+      response = await performRequest(accessToken);
+      payload = await parseJsonResponse(response);
+    }
+  }
+
+  if (!response.ok) {
+    throw new Error(
+      payload?.error_description ||
+      payload?.message ||
+      payload?.error?.message ||
+      `Request failed (${response.status})`
+    );
+  }
+
+  return payload;
+}
+
 function escapeHtml(value) {
   return String(value || '')
     .replace(/&/g, '&amp;')
@@ -289,7 +476,7 @@ function normalizeBrowserHistoryRecord(record) {
   };
 }
 
-async function fetchActivityLogs(userId, accessToken) {
+async function fetchActivityLogs(userId) {
   const params = new URLSearchParams({
     select: 'url,domain,time_spent,visit_count,created_at',
     user_id: `eq.${userId}`,
@@ -297,18 +484,9 @@ async function fetchActivityLogs(userId, accessToken) {
     limit: '500'
   });
 
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/activity_logs?${params.toString()}`, {
-    headers: {
-      'apikey': SUPABASE_ANON_KEY,
-      'Authorization': `Bearer ${accessToken}`,
-      'Accept': 'application/json'
-    }
+  const payload = await fetchJsonWithSessionRetry(`${SUPABASE_URL}/rest/v1/activity_logs?${params.toString()}`, {
+    reason: 'fetch-activity-logs'
   });
-
-  const payload = await parseJsonResponse(response);
-  if (!response.ok) {
-    throw new Error(payload?.message || payload?.error?.message || `Failed to load activity logs (${response.status})`);
-  }
 
   const logs = Array.isArray(payload) ? payload : [];
   console.log('[Popup] Records fetched:', {
@@ -319,27 +497,17 @@ async function fetchActivityLogs(userId, accessToken) {
   return logs;
 }
 
-async function fetchEmployeeProfile(userId, accessToken) {
+async function fetchEmployeeProfile(userId) {
   const params = new URLSearchParams({
     select: 'id,email,name,role,status,timezone',
     id: `eq.${userId}`,
     limit: '1'
   });
 
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/users?${params.toString()}`, {
-    headers: {
-      'apikey': SUPABASE_ANON_KEY,
-      'Authorization': `Bearer ${accessToken}`,
-      'Accept': 'application/json'
-    }
+  const payload = await fetchJsonWithSessionRetry(`${SUPABASE_URL}/rest/v1/users?${params.toString()}`, {
+    reason: 'fetch-employee-profile'
   });
-
-  const payload = await parseJsonResponse(response);
   console.log('[PopupTimezone] fetched profile payload:', payload);
-  if (!response.ok) {
-    throw new Error(payload?.message || payload?.error?.message || `Failed to load profile (${response.status})`);
-  }
-
   return Array.isArray(payload) ? payload[0] || null : payload || null;
 }
 
@@ -603,12 +771,13 @@ async function loadDashboardData(options = {}) {
     authSection.classList.remove('show');
     dashboardSection.classList.add('show');
 
-    const accessToken = await getStorage('session_token');
+    const accessToken = await getValidAccessToken({ reason: 'load-dashboard' });
     if (!accessToken) {
+      updateStatusBadge('offline');
       throw new Error('Missing session token. Please sign in again.');
     }
 
-    const profile = await fetchEmployeeProfile(status.userId, accessToken);
+    const profile = await fetchEmployeeProfile(status.userId);
     lastStatus = { ...status, timezone: profile?.timezone || TIMEZONE_FALLBACK };
     console.log('[PopupTimezone] loadDashboardData timezone state:', {
       profileTimezone: profile?.timezone,
@@ -619,7 +788,7 @@ async function loadDashboardData(options = {}) {
 
     const trackedHistoryRecords = await getTrackedRecentHistory();
     latestTrackedHistoryRecords = trackedHistoryRecords;
-    const logs = await fetchActivityLogs(status.userId, accessToken);
+    const logs = await fetchActivityLogs(status.userId);
     latestLogs = logs;
     const browserHistoryRows = await buildBrowserHistoryRows(trackedHistoryRecords, logs);
     latestBrowserHistoryRows = browserHistoryRows;
@@ -627,6 +796,11 @@ async function loadDashboardData(options = {}) {
     renderDashboard(status, latestMetrics, browserHistoryRows);
   } catch (error) {
     console.error('[Popup] Failed to load dashboard data:', error);
+    if (/session expired|missing session token|sign in again/i.test(error.message || '')) {
+      dashboardSection.classList.remove('show');
+      authSection.classList.add('show');
+      updateStatusBadge('offline');
+    }
     showMessage(dashboardErrorMessage, error.message || 'Failed to load dashboard data.', 'error');
   } finally {
     refreshInFlight = false;
@@ -655,6 +829,10 @@ async function handleLogin(event) {
     const authResponse = await auth.signInWithPassword({ email, password });
     const user = authResponse.user || authResponse;
     const accessToken = authResponse.access_token || authResponse.session?.access_token;
+    const refreshToken = authResponse.refresh_token || authResponse.session?.refresh_token;
+    const expiresAt = authResponse.expires_at
+      || authResponse.session?.expires_at
+      || (authResponse.expires_in ? Math.floor(Date.now() / 1000) + Number(authResponse.expires_in) : null);
 
     if (!user?.id || !accessToken) {
       throw new Error('Login succeeded but session data was incomplete.');
@@ -665,6 +843,8 @@ async function handleLogin(event) {
       email: user.email || email,
       name: user.user_metadata?.full_name || user.email || email,
       token: accessToken,
+      refreshToken,
+      expiresAt,
       timezone: null
     };
 
@@ -692,6 +872,8 @@ async function handleLogin(event) {
 
     await setStorage('employee_user_id', userData.userId);
     await setStorage('session_token', userData.token);
+    await setStorage(SESSION_REFRESH_TOKEN_KEY, userData.refreshToken || null);
+    await setStorage(SESSION_EXPIRES_AT_KEY, userData.expiresAt || null);
     await setStorage('employee_email', userData.email);
     await setStorage('employee_name', userData.name);
     await setStorage('employee_timezone', userData.timezone || TIMEZONE_FALLBACK);
@@ -722,7 +904,7 @@ async function handleLogout() {
 
   try {
     await sendMessage('logout');
-    await removeStorage(['employee_user_id', 'session_token', 'employee_email', 'employee_name', 'employee_timezone']);
+    await removeStorage(['employee_user_id', 'session_token', SESSION_REFRESH_TOKEN_KEY, SESSION_EXPIRES_AT_KEY, 'employee_email', 'employee_name', 'employee_timezone']);
     lastStatus = null;
     latestMetrics = null;
     latestBrowserHistoryRows = [];
