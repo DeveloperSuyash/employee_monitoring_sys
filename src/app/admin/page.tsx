@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Users,
@@ -39,6 +39,7 @@ export default function AdminDashboard() {
   const [selectedEmployeeId, setSelectedEmployeeId] = useState<string | null>(null);
   const [selectedEmployeeDetails, setSelectedEmployeeDetails] = useState<any | null>(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
+  const detailsRef = useRef<HTMLDivElement | null>(null);
   const [newUser, setNewUser] = useState({ name: '', email: '', role: 'employee', password: '', timezone: 'Asia/Kolkata' });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [editingTimezoneUserId, setEditingTimezoneUserId] = useState<string | null>(null);
@@ -103,6 +104,20 @@ export default function AdminDashboard() {
       void supabase.removeChannel(channel);
     };
   }, []);
+
+  useEffect(() => {
+    if (!selectedEmployeeDetails || !detailsRef.current) {
+      return;
+    }
+
+    const element = detailsRef.current;
+    const rect = element.getBoundingClientRect();
+    const isFullyVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
+
+    if (!isFullyVisible) {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  }, [selectedEmployeeId, selectedEmployeeDetails]);
 
   async function loadCurrentUser() {
     try {
@@ -484,7 +499,7 @@ export default function AdminDashboard() {
         </div>
 
         {selectedEmployeeDetails && (
-          <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div ref={detailsRef} className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="mb-5 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm uppercase tracking-[0.3em] text-slate-400">Employee details</p>
