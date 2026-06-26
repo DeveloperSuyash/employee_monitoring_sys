@@ -207,6 +207,13 @@ export default function AdminDashboard() {
       setEmployees(nextEmployees);
       setTimezoneByUserId(Object.fromEntries(nextEmployees.map((emp: any) => [emp.id, emp.timezone || 'Asia/Kolkata'])));
 
+      if (selectedEmployeeId) {
+        const refreshedDetails = await fetchEmployeeDetails(selectedEmployeeId);
+        if (refreshedDetails) {
+          setSelectedEmployeeDetails(refreshedDetails);
+        }
+      }
+
       if (nextEmployees.length === 0 && nextStats.totalUsers === 0) {
         setError('No users found. Please check your database connection and Supabase policies.');
       }
@@ -566,8 +573,6 @@ export default function AdminDashboard() {
                   <InfoCard label="Current Domain" value={selectedEmployeeDetails.currentDomain || 'No live domain'} />
                   <InfoCard label="Time Active" value={formatSeconds(selectedEmployeeDetails.currentTimeSpent || 0)} />
                   <InfoCard label="Total Usage Time" value={formatSeconds(selectedEmployeeDetails.totalUsageSeconds || selectedEmployeeDetails.totalTime || 0)} />
-                  <InfoCard label="Productivity Score" value={`${selectedEmployeeDetails.productivityPercent ?? selectedEmployeeDetails.productivity ?? 0}%`} />
-                  <InfoCard label="Productive / Unproductive" value={`${formatSeconds(selectedEmployeeDetails.productiveSeconds || 0)} / ${formatSeconds(selectedEmployeeDetails.unproductiveSeconds || 0)}`} />
                   <InfoCard label="Websites Tracked" value={String(selectedEmployeeDetails.websitesTracked || selectedEmployeeDetails.websiteCount || 0)} />
                   <InfoCard label="Total Visits" value={String(selectedEmployeeDetails.totalVisits || selectedEmployeeDetails.visitCount || 0)} />
                   <InfoCard label="Most Visited Website" value={selectedEmployeeDetails.mostVisitedWebsite || selectedEmployeeDetails.mostVisited || 'No data yet'} />
