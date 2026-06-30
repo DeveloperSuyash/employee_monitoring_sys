@@ -22,7 +22,8 @@ const STORAGE_KEYS = {
 
 const AUTH_REFRESH_BUFFER_MS = 60 * 1000;
 const SUPABASE_REFRESH_ENDPOINT = '/auth/v1/token?grant_type=refresh_token';
-const BROWSER_IDLE_TIMEOUT_SECONDS = 60;
+const BROWSER_IDLE_TIMEOUT_SECONDS = 20;
+const IDLE_LOCK_PAGE = 'idle-lock.html';
 
 // ─── Tab Tracking ───
 let activeTabId = null;
@@ -40,6 +41,8 @@ let totalVisitsToday = 0;
 let lastSavedAt = null;
 let trackingStateReady = null;
 let trackingCommitQueue = Promise.resolve();
+let browserIdlePromptOpen = false;
+let idleLockWindowId = null;
 
 const DEBUG_PREFIX = '[TrackingDebug]';
 
@@ -846,18 +849,17 @@ async function markProductive(reason) {
 
 async function sendMessageToActiveTab(message) {
   try {
-    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    const tab = tabs[0];
+    const tabs = await chrome.tabs.query({ active: true });
+    const trackableActiveTabs = tabs.filter((tab) => tab?.id && isTrackableUrl(tab.url || ''));
 
-    if (!tab?.id || !isTrackableUrl(tab.url || '')) {
-      console.log('[Extension] Idle popup skipped: active tab is not trackable', {
-        tabId: tab?.id || null,
-        url: tab?.url || null
-      });
+    if (!trackableActiveTabs.length) {
+      console.log('[Extension] Idle popup skipped: no active trackable tabs');
       return null;
     }
 
-    return await chrome.tabs.sendMessage(tab.id, message);
+    return await Promise.allSettled(
+      trackableActiveTabs.map((tab) => chrome.tabs.sendMessage(tab.id, message))
+    );
   } catch (error) {
     console.warn('[Extension] Active tab message failed:', {
       action: message?.action,
@@ -867,18 +869,81 @@ async function sendMessageToActiveTab(message) {
   }
 }
 
+async function getIdleLockWindow() {
+  if (idleLockWindowId === null) {
+    return null;
+  }
+
+  try {
+    return await chrome.windows.get(idleLockWindowId);
+  } catch (_error) {
+    idleLockWindowId = null;
+    return null;
+  }
+}
+
+async function focusIdleLockWindow() {
+  const existingWindow = await getIdleLockWindow();
+  if (!existingWindow?.id) {
+    return false;
+  }
+
+  await chrome.windows.update(existingWindow.id, {
+    focused: true,
+    state: 'fullscreen'
+  });
+  return true;
+}
+
+async function openIdleLockWindow(reason) {
+  if (await focusIdleLockWindow()) {
+    return;
+  }
+
+  const createdWindow = await chrome.windows.create({
+    url: chrome.runtime.getURL(IDLE_LOCK_PAGE),
+    type: 'popup',
+    focused: true,
+    state: 'fullscreen'
+  });
+
+  idleLockWindowId = createdWindow?.id ?? null;
+  console.log('[Extension] Idle lock window opened:', {
+    reason,
+    windowId: idleLockWindowId
+  });
+}
+
+async function closeIdleLockWindow(reason) {
+  const existingWindow = await getIdleLockWindow();
+  idleLockWindowId = null;
+
+  if (!existingWindow?.id) {
+    return;
+  }
+
+  try {
+    await chrome.windows.remove(existingWindow.id);
+    console.log('[Extension] Idle lock window closed:', { reason });
+  } catch (error) {
+    console.warn('[Extension] Failed to close idle lock window:', error?.message || error);
+  }
+}
+
 async function showBrowserIdlePopup(reason) {
   if (!isTracking) {
     return;
   }
 
+  browserIdlePromptOpen = true;
   markUnproductive(reason);
-  await sendMessageToActiveTab({ action: 'showIdlePopup', reason });
+  await openIdleLockWindow(reason);
   updatePopupStatus();
 }
 
 async function closeBrowserIdlePopup(reason) {
-  await sendMessageToActiveTab({ action: 'closeIdlePopup', reason });
+  browserIdlePromptOpen = false;
+  await closeIdleLockWindow(reason);
 }
 
 if (chrome.idle?.setDetectionInterval) {
@@ -906,6 +971,29 @@ if (chrome.idle?.onStateChanged) {
     }
   });
 }
+
+chrome.windows.onFocusChanged.addListener((windowId) => {
+  if (!browserIdlePromptOpen || idleLockWindowId === null || windowId === idleLockWindowId) {
+    return;
+  }
+
+  focusIdleLockWindow().catch((error) => {
+    console.warn('[Extension] Failed to refocus idle lock window:', error?.message || error);
+  });
+});
+
+chrome.windows.onRemoved.addListener((windowId) => {
+  if (windowId !== idleLockWindowId) {
+    return;
+  }
+
+  idleLockWindowId = null;
+  if (browserIdlePromptOpen) {
+    openIdleLockWindow('idle-lock-window-closed').catch((error) => {
+      console.warn('[Extension] Failed to reopen idle lock window:', error?.message || error);
+    });
+  }
+});
 
 // ─── Track Active Tab Changes ───
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
@@ -1398,11 +1486,13 @@ async function handleRuntimeMessage(request, sender, sendResponse) {
     }
     else if (request.action === 'idleWorking') {
       await markProductive(request.reason || 'idle-popup-working');
+      await closeBrowserIdlePopup(request.reason || 'idle-popup-working');
       sendResponse({ success: true });
     }
     else if (request.action === 'idleBreak') {
       markUnproductive(request.reason || 'idle-popup-break');
       await persistTrackingStats();
+      await closeBrowserIdlePopup(request.reason || 'idle-popup-break');
       updatePopupStatus();
       sendResponse({ success: true });
     }

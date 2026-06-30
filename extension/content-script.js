@@ -5,6 +5,7 @@ let pageStartTime = Date.now();
 let lastUserInteractionAt = Date.now();
 let idlePopupVisible = false;
 let idleAutoCloseTimer = null;
+let idlePopupPending = false;
 
 const IDLE_AUTO_CLOSE_MS = 30000;
 console.log('[IdleDebug] content-script.js loaded', {
@@ -15,12 +16,7 @@ console.log('[IdleDebug] content-script.js loaded', {
 console.log('IDLE POPUP VERSION 3 LOADED');
 
 function isAdminOrHrPage() {
-  const { pathname, protocol } = window.location;
-  if (protocol === 'chrome:') {
-    return true;
-  }
-
-  return /\/admin(?:\/|$|\?)/i.test(pathname) || /\/hr(?:\/|$|\?)/i.test(pathname);
+  return window.location.protocol === 'chrome:';
 }
 
 function updateLastUserInteraction() {
@@ -49,6 +45,7 @@ function closeIdlePopup() {
   }
 
   idlePopupVisible = false;
+  idlePopupPending = false;
 
   if (idleAutoCloseTimer) {
     window.clearTimeout(idleAutoCloseTimer);
@@ -173,6 +170,7 @@ function buildIdlePopup() {
 
 function showIdlePopup() {
   if (document.visibilityState !== 'visible') {
+    idlePopupPending = true;
     return;
   }
 
@@ -189,6 +187,7 @@ function showIdlePopup() {
     href: window.location.href,
     idleDurationMs: Date.now() - lastUserInteractionAt
   });
+  idlePopupPending = false;
   idlePopupVisible = true;
   const popup = buildIdlePopup();
   document.documentElement.appendChild(popup);
@@ -229,6 +228,11 @@ document.addEventListener('click', handleRealUserActivity, true);
 document.addEventListener('keydown', handleRealUserActivity, true);
 document.addEventListener('scroll', handleRealUserActivity, true);
 document.addEventListener('touchstart', handleRealUserActivity, true);
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible' && idlePopupPending) {
+    showIdlePopup();
+  }
+});
 
 chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   if (request.action === 'showIdlePopup') {

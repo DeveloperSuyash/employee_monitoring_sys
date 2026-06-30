@@ -74,6 +74,11 @@ async function run() {
     },
     windows: {
       WINDOW_ID_NONE: -1,
+      get: async () => ({ id: 99 }),
+      update: async () => ({ id: 99 }),
+      create: async () => ({ id: 99 }),
+      remove: async () => undefined,
+      onRemoved: { addListener(listener) { listeners.windowRemoved = listener; } },
       onFocusChanged: { addListener(listener) { listeners.focusChanged = listener; } }
     },
     history: {
