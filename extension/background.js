@@ -17,13 +17,16 @@ const STORAGE_KEYS = {
   LAST_PING: 'last_ping_time',
   CURRENT_TAB: 'current_tab_data',
   RECENT_HISTORY: 'recent_browser_history',
-  TRACKING_STATS: 'tracking_stats'
+  TRACKING_STATS: 'tracking_stats',
+  IDLE_LOCK_BACKDROP: 'idle_lock_backdrop'
 };
 
 const AUTH_REFRESH_BUFFER_MS = 60 * 1000;
 const SUPABASE_REFRESH_ENDPOINT = '/auth/v1/token?grant_type=refresh_token';
 const BROWSER_IDLE_TIMEOUT_SECONDS = 20;
 const IDLE_LOCK_PAGE = 'idle-lock.html';
+const NATIVE_OVERLAY_HOST = 'com.employee_monitoring.idle_overlay';
+const USE_CHROME_LOCK_FALLBACK = false;
 
 // ─── Tab Tracking ───
 let activeTabId = null;
@@ -43,6 +46,8 @@ let trackingStateReady = null;
 let trackingCommitQueue = Promise.resolve();
 let browserIdlePromptOpen = false;
 let idleLockWindowId = null;
+let idleLockChoiceInProgress = false;
+let nativeOverlayPort = null;
 
 const DEBUG_PREFIX = '[TrackingDebug]';
 
@@ -895,15 +900,48 @@ async function focusIdleLockWindow() {
   return true;
 }
 
+async function captureIdleLockBackdrop() {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    const activeTab = tabs[0];
+    if (!activeTab?.windowId) {
+      return;
+    }
+
+    const dataUrl = await new Promise((resolve) => {
+      chrome.tabs.captureVisibleTab(activeTab.windowId, { format: 'jpeg', quality: 55 }, (imageUrl) => {
+        if (chrome.runtime.lastError || !imageUrl) {
+          resolve(null);
+          return;
+        }
+
+        resolve(imageUrl);
+      });
+    });
+
+    if (dataUrl) {
+      await setLocalStorage({ [STORAGE_KEYS.IDLE_LOCK_BACKDROP]: dataUrl });
+    }
+  } catch (error) {
+    console.warn('[Extension] Failed to capture idle backdrop:', error?.message || error);
+  }
+}
+
 async function openIdleLockWindow(reason) {
   if (await focusIdleLockWindow()) {
     return;
   }
 
+  await captureIdleLockBackdrop();
+
   const createdWindow = await chrome.windows.create({
     url: chrome.runtime.getURL(IDLE_LOCK_PAGE),
     type: 'popup',
     focused: true,
+    left: 0,
+    top: 0,
+    width: 1200,
+    height: 800,
     state: 'fullscreen'
   });
 
@@ -911,6 +949,51 @@ async function openIdleLockWindow(reason) {
   console.log('[Extension] Idle lock window opened:', {
     reason,
     windowId: idleLockWindowId
+  });
+}
+
+function connectNativeOverlay() {
+  if (nativeOverlayPort) {
+    return nativeOverlayPort;
+  }
+
+  try {
+    nativeOverlayPort = chrome.runtime.connectNative(NATIVE_OVERLAY_HOST);
+    nativeOverlayPort.onMessage.addListener((message) => {
+      if (message?.action === 'idleWorking' || message?.action === 'idleBreak') {
+        handleRuntimeMessage(message, {}, () => {});
+      }
+    });
+    nativeOverlayPort.onDisconnect.addListener(() => {
+      if (chrome.runtime.lastError) {
+        console.warn('[Extension] Native overlay disconnected:', chrome.runtime.lastError.message);
+      }
+      nativeOverlayPort = null;
+    });
+    return nativeOverlayPort;
+  } catch (error) {
+    console.warn('[Extension] Native overlay connection failed:', error?.message || error);
+    nativeOverlayPort = null;
+    return null;
+  }
+}
+
+function sendNativeOverlayMessage(message) {
+  return new Promise((resolve) => {
+    const port = connectNativeOverlay();
+    if (!port) {
+      resolve(false);
+      return;
+    }
+
+    try {
+      port.postMessage(message);
+      resolve(true);
+    } catch (error) {
+      console.warn('[Extension] Native overlay message failed:', error?.message || error);
+      nativeOverlayPort = null;
+      resolve(false);
+    }
   });
 }
 
@@ -936,14 +1019,21 @@ async function showBrowserIdlePopup(reason) {
   }
 
   browserIdlePromptOpen = true;
+  idleLockChoiceInProgress = false;
   markUnproductive(reason);
-  await openIdleLockWindow(reason);
+  const nativeShown = await sendNativeOverlayMessage({ action: 'showIdleOverlay', reason });
+  if (!nativeShown && USE_CHROME_LOCK_FALLBACK) {
+    await openIdleLockWindow(reason);
+  }
   updatePopupStatus();
 }
 
 async function closeBrowserIdlePopup(reason) {
+  idleLockChoiceInProgress = true;
   browserIdlePromptOpen = false;
+  await sendNativeOverlayMessage({ action: 'closeIdleOverlay', reason });
   await closeIdleLockWindow(reason);
+  idleLockChoiceInProgress = false;
 }
 
 if (chrome.idle?.setDetectionInterval) {
@@ -962,12 +1052,7 @@ if (chrome.idle?.onStateChanged) {
     }
 
     if (state === 'active') {
-      closeBrowserIdlePopup('browser-active').catch((error) => {
-        console.warn('[Extension] Failed to close browser idle popup:', error);
-      });
-      markProductive('browser-active').catch((error) => {
-        console.warn('[Extension] Failed to resume productive tracking:', error);
-      });
+      return;
     }
   });
 }
@@ -988,7 +1073,7 @@ chrome.windows.onRemoved.addListener((windowId) => {
   }
 
   idleLockWindowId = null;
-  if (browserIdlePromptOpen) {
+  if (browserIdlePromptOpen && !idleLockChoiceInProgress) {
     openIdleLockWindow('idle-lock-window-closed').catch((error) => {
       console.warn('[Extension] Failed to reopen idle lock window:', error?.message || error);
     });
@@ -1089,6 +1174,10 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 chrome.windows.onFocusChanged.addListener((windowId) => {
   if (windowId === chrome.windows.WINDOW_ID_NONE) {
     markUnproductive('browser-blurred');
+    return;
+  }
+
+  if (browserIdlePromptOpen) {
     return;
   }
 
