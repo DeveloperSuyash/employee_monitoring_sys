@@ -22,6 +22,7 @@ const STORAGE_KEYS = {
 
 const AUTH_REFRESH_BUFFER_MS = 60 * 1000;
 const SUPABASE_REFRESH_ENDPOINT = '/auth/v1/token?grant_type=refresh_token';
+const BROWSER_IDLE_TIMEOUT_SECONDS = 60;
 
 // ─── Tab Tracking ───
 let activeTabId = null;
@@ -828,6 +829,84 @@ function markUnproductive(reason) {
   console.log('[Extension] Marked unproductive time:', { reason });
 }
 
+async function markProductive(reason) {
+  if (!isTracking) {
+    return;
+  }
+
+  await syncCurrentTab();
+  if (activeTabId !== null && isTrackableUrl(currentUrl)) {
+    startTrackingSegment('productive');
+    await persistTrackingStats();
+    await persistCurrentTabState();
+    console.log('[Extension] Marked productive time:', { reason });
+    updatePopupStatus();
+  }
+}
+
+async function sendMessageToActiveTab(message) {
+  try {
+    const tabs = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    const tab = tabs[0];
+
+    if (!tab?.id || !isTrackableUrl(tab.url || '')) {
+      console.log('[Extension] Idle popup skipped: active tab is not trackable', {
+        tabId: tab?.id || null,
+        url: tab?.url || null
+      });
+      return null;
+    }
+
+    return await chrome.tabs.sendMessage(tab.id, message);
+  } catch (error) {
+    console.warn('[Extension] Active tab message failed:', {
+      action: message?.action,
+      error: error?.message || String(error || '')
+    });
+    return null;
+  }
+}
+
+async function showBrowserIdlePopup(reason) {
+  if (!isTracking) {
+    return;
+  }
+
+  markUnproductive(reason);
+  await sendMessageToActiveTab({ action: 'showIdlePopup', reason });
+  updatePopupStatus();
+}
+
+async function closeBrowserIdlePopup(reason) {
+  await sendMessageToActiveTab({ action: 'closeIdlePopup', reason });
+}
+
+if (chrome.idle?.setDetectionInterval) {
+  chrome.idle.setDetectionInterval(BROWSER_IDLE_TIMEOUT_SECONDS);
+}
+
+if (chrome.idle?.onStateChanged) {
+  chrome.idle.onStateChanged.addListener((state) => {
+    console.log('[IdleDebug] browser idle state changed:', state);
+
+    if (state === 'idle' || state === 'locked') {
+      showBrowserIdlePopup(`browser-${state}`).catch((error) => {
+        console.error('[Extension] Failed to show browser idle popup:', error);
+      });
+      return;
+    }
+
+    if (state === 'active') {
+      closeBrowserIdlePopup('browser-active').catch((error) => {
+        console.warn('[Extension] Failed to close browser idle popup:', error);
+      });
+      markProductive('browser-active').catch((error) => {
+        console.warn('[Extension] Failed to resume productive tracking:', error);
+      });
+    }
+  });
+}
+
 // ─── Track Active Tab Changes ───
 chrome.tabs.onActivated.addListener(async (activeInfo) => {
   try {
@@ -1314,6 +1393,16 @@ async function handleRuntimeMessage(request, sender, sendResponse) {
       }
 
       await commitTrackedTime();
+      updatePopupStatus();
+      sendResponse({ success: true });
+    }
+    else if (request.action === 'idleWorking') {
+      await markProductive(request.reason || 'idle-popup-working');
+      sendResponse({ success: true });
+    }
+    else if (request.action === 'idleBreak') {
+      markUnproductive(request.reason || 'idle-popup-break');
+      await persistTrackingStats();
       updatePopupStatus();
       sendResponse({ success: true });
     }

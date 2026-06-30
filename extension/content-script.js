@@ -6,8 +6,6 @@ let lastUserInteractionAt = Date.now();
 let idlePopupVisible = false;
 let idleAutoCloseTimer = null;
 
-const IDLE_TIMEOUT_MS = 60000;
-const IDLE_CHECK_INTERVAL_MS = 5000;
 const IDLE_AUTO_CLOSE_MS = 30000;
 console.log('[IdleDebug] content-script.js loaded', {
   href: window.location.href,
@@ -29,12 +27,19 @@ function updateLastUserInteraction() {
   lastUserInteractionAt = Date.now();
 }
 
-function markIdleLocally() {
-  lastUserInteractionAt = Date.now();
+function sendIdleResolution(action, reason) {
+  chrome.runtime.sendMessage({ action, reason }).catch((error) => {
+    console.warn('[IdleDebug] failed to notify background', {
+      action,
+      reason,
+      error: error?.message || String(error || '')
+    });
+  });
 }
 
-async function loadGlobalLastUserInteraction() {
-  return Promise.resolve(Date.now());
+function markIdleLocally(reason = 'idle-popup-closed') {
+  lastUserInteractionAt = Date.now();
+  sendIdleResolution('idleBreak', reason);
 }
 
 function closeIdlePopup() {
@@ -144,11 +149,12 @@ function buildIdlePopup() {
 
   workingButton?.addEventListener('click', () => {
     updateLastUserInteraction();
+    sendIdleResolution('idleWorking', 'user-confirmed-working');
     closeIdlePopup();
   });
 
   breakButton?.addEventListener('click', () => {
-    markIdleLocally();
+    markIdleLocally('user-selected-break');
     closeIdlePopup();
   });
 
@@ -207,7 +213,7 @@ function showIdlePopup() {
     }
 
     console.log('[IdleDebug] auto-closing popup after 30s');
-    markIdleLocally();
+    markIdleLocally('popup-auto-closed');
     closeIdlePopup();
   }, IDLE_AUTO_CLOSE_MS);
 }
@@ -224,39 +230,20 @@ document.addEventListener('keydown', handleRealUserActivity, true);
 document.addEventListener('scroll', handleRealUserActivity, true);
 document.addEventListener('touchstart', handleRealUserActivity, true);
 
-window.setInterval(checkIdleState, IDLE_CHECK_INTERVAL_MS);
-
-function checkIdleState() {
-  if (isAdminOrHrPage()) {
-    console.log('[IdleDebug] checkIdleState skipped on admin/hr/chrome page', {
-      href: window.location.href,
-      protocol: window.location.protocol
-    });
-    return;
-  }
-
-  const idleFor = Date.now() - lastUserInteractionAt;
-  console.log('[IdleDebug] checkIdleState tick', {
-    href: window.location.href,
-    idleForMs: idleFor,
-    idlePopupVisible,
-    lastUserInteractionAt
-  });
-  if (idleFor >= IDLE_TIMEOUT_MS && !idlePopupVisible) {
-    console.log('ACTIVE TAB CHECK', {
-      href: location.href,
-      visibility: document.visibilityState,
-      hasFocus: document.hasFocus()
-    });
-    if (document.visibilityState !== 'visible') {
-      return;
-    }
-    if (!document.hasFocus()) {
-      return;
-    }
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
+  if (request.action === 'showIdlePopup') {
     showIdlePopup();
+    sendResponse({ success: true, visible: idlePopupVisible });
+    return true;
   }
-}
+
+  if (request.action === 'closeIdlePopup') {
+    updateLastUserInteraction();
+    closeIdlePopup();
+    sendResponse({ success: true });
+    return true;
+  }
+});
 
 window.addEventListener('error', (event) => {
   console.error('[IdleDebug] window error', {

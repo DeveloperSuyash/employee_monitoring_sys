@@ -85,8 +85,8 @@ async function run() {
     chrome,
     Date: MockDate,
     URL,
-    fetch: async (_url, options = {}) => {
-      if (options.body) {
+    fetch: async (url, options = {}) => {
+      if (options.body && String(url).includes('/rest/v1/activity_logs')) {
         supabaseWrites.push(JSON.parse(options.body));
       }
       return { ok: true, status: 201, text: async () => '' };
