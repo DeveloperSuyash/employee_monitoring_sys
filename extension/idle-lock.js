@@ -24,7 +24,3 @@ applyStoredBackdrop();
 document.getElementById('workingBtn')?.addEventListener('click', () => {
   sendIdleAction('idleWorking', 'idle-lock-working');
 });
-
-document.getElementById('breakBtn')?.addEventListener('click', () => {
-  sendIdleAction('idleBreak', 'idle-lock-break');
-});

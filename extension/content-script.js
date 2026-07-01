@@ -115,7 +115,7 @@ function buildIdlePopup() {
         flex-wrap:wrap;
       ">
         <button data-idle-action="working" style="
-          min-width:140px;
+          min-width:190px;
           border:none;
           border-radius:12px;
           padding:12px 16px;
@@ -124,34 +124,17 @@ function buildIdlePopup() {
           font-size:14px;
           font-weight:600;
           cursor:pointer;
-        ">I'm Working</button>
-        <button data-idle-action="break" style="
-          min-width:140px;
-          border:1px solid #cbd5e1;
-          border-radius:12px;
-          padding:12px 16px;
-          background:#fff;
-          color:#0f172a;
-          font-size:14px;
-          font-weight:600;
-          cursor:pointer;
-        ">Take a Break</button>
+        ">I am Working</button>
       </div>
     </div>
   `;
 
   const panel = overlay.firstElementChild;
   const workingButton = overlay.querySelector('[data-idle-action="working"]');
-  const breakButton = overlay.querySelector('[data-idle-action="break"]');
 
   workingButton?.addEventListener('click', () => {
     updateLastUserInteraction();
     sendIdleResolution('idleWorking', 'user-confirmed-working');
-    closeIdlePopup();
-  });
-
-  breakButton?.addEventListener('click', () => {
-    markIdleLocally('user-selected-break');
     closeIdlePopup();
   });
 

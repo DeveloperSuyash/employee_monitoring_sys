@@ -23,7 +23,8 @@ const STORAGE_KEYS = {
 
 const AUTH_REFRESH_BUFFER_MS = 60 * 1000;
 const SUPABASE_REFRESH_ENDPOINT = '/auth/v1/token?grant_type=refresh_token';
-const BROWSER_IDLE_TIMEOUT_SECONDS = 20;
+const BROWSER_IDLE_TIMEOUT_SECONDS = 120;
+const SHIFT_SECONDS = 9 * 60 * 60;
 const IDLE_LOCK_PAGE = 'idle-lock.html';
 const NATIVE_OVERLAY_HOST = 'com.employee_monitoring.idle_overlay';
 const USE_CHROME_LOCK_FALLBACK = false;
@@ -561,15 +562,14 @@ async function commitTrackedTimeInternal(now) {
 }
 
 function getTrackedTotals() {
-  const liveType = getCurrentTrackingType();
   const liveElapsed = trackingSegmentStart === null ? 0 : Math.max(0, Math.floor((Date.now() - trackingSegmentStart) / 1000));
-  const liveProductive = liveType === 'productive' && trackingSegmentType === 'productive' ? liveElapsed : 0;
-  const liveUnproductive = liveType === 'unproductive' && trackingSegmentType === 'unproductive' ? liveElapsed : 0;
+  const liveProductive = trackingSegmentType === 'productive' ? liveElapsed : 0;
+  const liveUnproductive = trackingSegmentType === 'unproductive' ? liveElapsed : 0;
 
   return {
     productiveSeconds: productiveSecondsToday + liveProductive,
     unproductiveSeconds: unproductiveSecondsToday + liveUnproductive,
-    totalUsageSeconds: productiveSecondsToday + liveProductive,
+    totalUsageSeconds: productiveSecondsToday + unproductiveSecondsToday + liveProductive + liveUnproductive,
     totalVisits: totalVisitsToday
   };
 }
@@ -1341,9 +1341,7 @@ async function syncDashboardSnapshot(status = null) {
     const unproductiveSeconds = Number(activeStatus.unproductiveSeconds || 0);
     const totalUsageSeconds = Number(activeStatus.totalUsageSeconds || 0);
     const totalVisits = Number(activeStatus.totalVisits || 0);
-    const productivityPercent = productiveSeconds + unproductiveSeconds > 0
-      ? Math.round((productiveSeconds / Math.max(1, productiveSeconds + unproductiveSeconds)) * 100)
-      : 0;
+    const productivityPercent = Math.min(100, Math.round((productiveSeconds / SHIFT_SECONDS) * 100));
 
     const historyRows = trackedHistoryRecords
       .filter((record) => record?.url)

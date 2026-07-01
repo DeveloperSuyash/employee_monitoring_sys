@@ -5,6 +5,7 @@ const SESSION_REFRESH_TOKEN_KEY = 'session_refresh_token';
 const SESSION_EXPIRES_AT_KEY = 'session_expires_at';
 const AUTH_REFRESH_BUFFER_MS = 60 * 1000;
 const SUPABASE_REFRESH_ENDPOINT = '/auth/v1/token?grant_type=refresh_token';
+const SHIFT_SECONDS = 9 * 60 * 60;
 
 const authSection = document.getElementById('authSection');
 const dashboardSection = document.getElementById('dashboardSection');
@@ -609,6 +610,7 @@ function buildMetrics(trackedHistoryRecords, logs, status) {
 
   const productiveSeconds = Number(status.productiveSeconds || 0);
   const unproductiveSeconds = Number(status.unproductiveSeconds || 0);
+  const trackedStatusTotalSeconds = Math.max(0, productiveSeconds + unproductiveSeconds);
   const currentWebsiteActiveTime = Number(status.currentTimeSpent || 0);
 
   const rankedDomains = Array.from(domainStats.values()).sort((a, b) => {
@@ -628,12 +630,13 @@ function buildMetrics(trackedHistoryRecords, logs, status) {
 
   const mostVisited = rankedDomains[0]?.domain || '-';
   const websitesTracked = domainStats.size;
-  const productivityPercent = Math.min(100, Math.round((productiveSeconds / 32400) * 100));
+  const productivityPercent = Math.min(100, Math.round((productiveSeconds / SHIFT_SECONDS) * 100));
 
   console.log('[TrackingDebug] popup-metrics-aggregated', {
     trackedRecordCount: allTrackedRecords.length,
     storageRecordCount: trackedHistoryRecords.length,
     totalTrackedUsageTime,
+    trackedStatusTotalSeconds,
     currentWebsiteActiveTime,
     totalVisits,
     productiveSeconds,
@@ -642,7 +645,7 @@ function buildMetrics(trackedHistoryRecords, logs, status) {
   });
 
   return {
-    totalUsageSeconds: totalTrackedUsageTime,
+    totalUsageSeconds: productiveSeconds || totalTrackedUsageTime,
     currentWebsiteActiveTime,
     totalVisits,
     websitesTracked,

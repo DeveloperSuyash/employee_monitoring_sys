@@ -53,7 +53,7 @@ $xaml = @"
                    TextAlignment="Center"
                    Margin="0,0,0,10" />
 
-        <TextBlock Text="No activity has been detected for the last 20 seconds."
+        <TextBlock Text="No activity has been detected for the last 2 minutes."
                    FontSize="15"
                    Foreground="#475569"
                    TextAlignment="Center"
@@ -61,25 +61,13 @@ $xaml = @"
 
         <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
           <Button x:Name="WorkingButton"
-                  Content="I'm Working"
-                  Width="160"
+                  Content="I am Working"
+                  Width="190"
                   Height="46"
-                  Margin="0,0,14,0"
                   Background="#111827"
                   Foreground="White"
                   FontWeight="Bold"
                   BorderThickness="0"
-                  Cursor="Hand" />
-
-          <Button x:Name="BreakButton"
-                  Content="Take a Break"
-                  Width="160"
-                  Height="46"
-                  Background="White"
-                  Foreground="#111827"
-                  FontWeight="Bold"
-                  BorderBrush="#CBD5E1"
-                  BorderThickness="1"
                   Cursor="Hand" />
         </StackPanel>
       </StackPanel>
@@ -91,7 +79,6 @@ $xaml = @"
 $reader = New-Object System.Xml.XmlNodeReader ([xml]$xaml)
 $window = [Windows.Markup.XamlReader]::Load($reader)
 $workingButton = $window.FindName("WorkingButton")
-$breakButton = $window.FindName("BreakButton")
 
 function Send-OverlayAction {
   param(
@@ -106,12 +93,6 @@ function Send-OverlayAction {
 
 $workingButton.Add_Click({
   Send-OverlayAction -Action "idleWorking" -ActionReason "native-overlay-working"
-  $script:allowClose = $true
-  $window.Close()
-})
-
-$breakButton.Add_Click({
-  Send-OverlayAction -Action "idleBreak" -ActionReason "native-overlay-break"
   $script:allowClose = $true
   $window.Close()
 })
